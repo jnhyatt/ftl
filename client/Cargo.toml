@@ -1,0 +1,11 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { workspace = true, features = ["bevy_winit", "serialize"] }
+bevy_replicon = { workspace = true }
+bevy_replicon_renet = { workspace = true }
+bevy_egui = "0.27.0"
+common = { path = "../common" }

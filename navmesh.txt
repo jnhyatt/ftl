@@ -1,0 +1,61 @@
+Events client can send:
+- power system
+- power weapon
+- set autofire
+
+Things our new room/navmesh system needs to be able to do:
+- relate cells via the nav mesh
+- associate rooms with hitboxes for flak/beam hit testing
+
+struct NavDataSchematic {
+    cells: Vec<Cell>,
+    edges: HashMap<UnordPair, Edge>,
+    rooms: Vec<Room>,
+}
+
+struct CellSchematic {
+    pos: Vec2,
+    room: usize,
+}
+
+struct EdgeSchematic {
+    door: bool,
+}
+
+struct RoomSchematic {
+    hitbox: Box,
+}
+
+fn find_path(&self, from: usize, to: usize) -> Option<Path> {
+
+            let mut frontier = VecDeque::new();
+            frontier.push_back(from);
+            let mut came_from = HashMap::new();
+            while let Some(current) = frontier.pop_front() {
+                if current == to {
+                    break;
+                }
+                for &next in self.cells.get(&current).unwrap().keys() {
+                    if !came_from.contains_key(&next) {
+                        frontier.push_back(next);
+                        came_from.insert(next, current);
+                    }
+        }
+    }
+    let mut path = Vec::new();
+    let mut current = to;
+    while current != from {
+        path.push(current);
+        current = *came_from.get(&current)?;
+    }
+    path.push(current);
+    Some(Path(path))
+}
+
+A nav mesh section has nodes at all corners. For our purposes, a section is either a line segment or a square. A crew's whereabouts is represented as either at a specific node or in transit as a function of one or two clamped floats depending on whether the section they're in is a square or line segment. For A* purposes, the crew's distance to any given node is the minimum of the distance to that node on each component.
+
+Each edge in the pathing graph is associated with a nav section. When a crew wants to transit an edge, it looks up the nav section and finds the coordinates of that section that it occupies -- for example, for a nav section from 2 to 6, if a crew is at 2, its coordinate in that section are 0.0. If the crew is at 6, the coordinate is 1.0. Multiple pathing graph edges can reference the same nav section -- for example, a square section with corner nodes 0, 1, 2 and 3 would be referenced by edges (0, 1), (0, 2), (0, 3), (1, 2), (1, 3) and (2, 3). Any crew wanting to transit any of those edges would find its coordinates on that nav section.
+
+Once a crew has determined its nav section along with current and target coordinates within that section, it transits the section by lerping its coordinates from current to goal. Once it reaches its target coordinates, it uses its next path edge to find the next nav section to transit until it reaches the final node in its path.
+
+How to tell which room a crew is in for the purposes of crew taking damage under weapons fire? Simple: if the crew is at a node, we check which room it belongs to. If the crew is transiting an edge, we round the coordinates to the nearest node and check what room that node belongs to.
