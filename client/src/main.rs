@@ -58,7 +58,7 @@ fn setup(channels: Res<RepliconChannels>, mut commands: Commands) {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
     let client_id = current_time.as_millis() as u64;
-    let server_addr = SocketAddr::new(Ipv4Addr::new(192, 168, 0, 26).into(), 5000);
+    let server_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 5000);
     let socket = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], 0))).unwrap();
     let authentication = ClientAuthentication::Unsecure {
         client_id,
