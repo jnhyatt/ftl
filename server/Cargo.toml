@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = { workspace = true }
-bevy_replicon = { workspace = true }
-bevy_replicon_renet = { workspace = true }
-common = { path = "../common" }
-rand = "0.8.5"
-strum = "0.26"
-strum_macros = "0.26"
+clap = { version = "4.5.7", features = ["derive"] }
+# bevy = { workspace = true }
+# bevy_replicon = { workspace = true }
+# bevy_replicon_renet = { workspace = true }
+# common = { path = "../common" }
+# rand = "0.8.5"
+# strum = "0.26"
+# strum_macros = "0.26"
