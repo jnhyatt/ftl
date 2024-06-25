@@ -59,10 +59,10 @@ fn setup(channels: Res<RepliconChannels>, mut commands: Commands) {
         .unwrap();
     let client_id = current_time.as_millis() as u64;
     let server_addr = SocketAddr::new(
-        Ipv6Addr::new(0x0, 0x0, 0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x1).into(),
+        Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
         5000,
     );
-    let socket = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], 0))).unwrap();
+    let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))).unwrap();
     let authentication = ClientAuthentication::Unsecure {
         client_id,
         protocol_id: PROTOCOL_ID,
