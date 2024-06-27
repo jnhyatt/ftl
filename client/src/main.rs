@@ -1,8 +1,3 @@
-use std::{
-    net::{Ipv6Addr, SocketAddr, UdpSocket},
-    time::SystemTime,
-};
-
 use bevy::prelude::*;
 use bevy_egui::{
     egui::{self, Ui},
@@ -18,6 +13,11 @@ use bevy_replicon_renet::{
 };
 use common::{projectiles::*, *};
 use events::*;
+use intel::*;
+use std::{
+    net::{Ipv6Addr, SocketAddr, UdpSocket},
+    time::SystemTime,
+};
 
 fn main() {
     App::new()
@@ -39,6 +39,7 @@ fn main() {
                 bullet_panels,
                 enemy_panels,
                 dead_panel,
+                crew_panel,
                 ready_panel.run_if(resource_exists::<ReadyState>),
             ),
         )
@@ -59,7 +60,8 @@ fn setup(channels: Res<RepliconChannels>, mut commands: Commands) {
         .unwrap();
     let client_id = current_time.as_millis() as u64;
     let server_addr = SocketAddr::new(
-        Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
+        // Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
+        Ipv6Addr::LOCALHOST.into(),
         5000,
     );
     let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))).unwrap();
@@ -137,6 +139,7 @@ fn weapons_panel(
     basic_intel: Query<&BasicIntel>,
     mut weapon_power: EventWriter<WeaponPower>,
     mut weapon_targeting: EventWriter<SetProjectileWeaponTarget>,
+    mut weapon_ordering: EventWriter<MoveWeapon>,
 ) {
     let room_name = |e: Option<ProjectileTarget>| {
         let Some(target) = e else {
@@ -152,8 +155,25 @@ fn weapons_panel(
             continue;
         };
         egui::Window::new(format!("Weapons ({name})")).show(ui.ctx_mut(), |ui| {
+            let last_weapon = weapons.weapons().len() - 1;
             for (index, weapon) in weapons.weapons().iter().enumerate() {
                 ui.horizontal(|ui| {
+                    ui.add_enabled_ui(index > 0, |ui| {
+                        if ui.button("⬆").clicked() {
+                            weapon_ordering.send(MoveWeapon {
+                                weapon_index: index,
+                                target_index: index - 1,
+                            });
+                        }
+                    });
+                    ui.add_enabled_ui(index < last_weapon, |ui| {
+                        if ui.button("⬇").clicked() {
+                            weapon_ordering.send(MoveWeapon {
+                                weapon_index: index,
+                                target_index: index + 1,
+                            });
+                        }
+                    });
                     let mut powered = weapon.is_powered();
                     for _ in 0..weapon.weapon.power {
                         ui.checkbox(&mut powered, "");
@@ -358,6 +378,48 @@ fn dead_panel(mut ui: EguiContexts, ships: Query<(), (With<Ship>, With<Dead>)>) 
     for _ in &ships {
         egui::Window::new("You Died").show(ui.ctx_mut(), |ui| {
             ui.label("Your ship has been destroyed");
+        });
+    }
+}
+
+fn crew_panel(
+    mut ui: EguiContexts,
+    ships: Query<(&Name, &Ship), Without<Dead>>,
+    mut set_crew_goal: EventWriter<SetCrewGoal>,
+) {
+    for (name, ship) in &ships {
+        egui::Window::new(format!("Crew ({name})")).show(ui.ctx_mut(), |ui| {
+            for (crew_index, crew) in ship.crew.iter().enumerate() {
+                ui.group(|ui| {
+                    let cell = crew.nav_status.occupied_cell();
+                    let current_room = ship
+                        .rooms
+                        .iter()
+                        .position(|x| x.cells.iter().any(|x| *x == cell))
+                        .unwrap();
+                    ui.heading(&crew.name);
+                    ui.label(format!(
+                        "Health: {}/{}",
+                        crew.health as usize, crew.max_health as usize
+                    ));
+                    let mut target_room = current_room;
+                    let room_name = |room| format!("Room {}", room + 1);
+                    egui::ComboBox::new(&crew.name, "Goal")
+                        .selected_text(room_name(current_room))
+                        .show_ui(ui, |ui| {
+                            for room in 0..ship.rooms.len() {
+                                ui.selectable_value(&mut target_room, room, room_name(room));
+                            }
+                        });
+                    ui.label(format!("Current status: {:?}", crew.nav_status));
+                    if target_room != current_room {
+                        set_crew_goal.send(SetCrewGoal {
+                            crew: crew_index,
+                            target_room,
+                        });
+                    }
+                });
+            }
         });
     }
 }

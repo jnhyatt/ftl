@@ -58,15 +58,8 @@ pub struct MoveWeapon {
 
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetCrewGoal {
-    pub crew: Entity,
-    pub target_room: Entity,
-}
-
-impl MapEntities for SetCrewGoal {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.crew = entity_mapper.map_entity(self.crew);
-        self.target_room = entity_mapper.map_entity(self.target_room);
-    }
+    pub crew: usize,
+    pub target_room: usize,
 }
 
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]

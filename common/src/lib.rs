@@ -1,27 +1,25 @@
 pub mod events;
+pub mod intel;
+pub mod pathing;
 pub mod projectiles;
+
 mod replicate_resource;
 mod systems;
-
-use std::{collections::HashSet, ops::Deref, time::Duration};
+mod util;
 
 use bevy::{ecs::entity::MapEntities, prelude::*};
 use bevy_replicon::prelude::*;
 use events::{
-    AdjustPower,
-    MoveWeapon,
-    SetAutofire,
-    SetCrewGoal,
-    // adjust_power, set_autofire, set_projectile_weapon_target, weapon_power,
-    SetProjectileWeaponTarget,
-    WeaponPower,
+    AdjustPower, MoveWeapon, SetAutofire, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower,
 };
+use intel::*;
+use pathing::*;
+use projectiles::*;
 use replicate_resource::ReplicateResExt;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, ops::Deref, time::Duration};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-
-use projectiles::*;
 pub use system::{Engines, Reactor, Shields, Weapons};
 pub use systems::{ShipSystem, SystemStatus};
 
@@ -46,79 +44,8 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<WeaponPower>(ChannelKind::Ordered);
     app.add_mapped_client_event::<SetProjectileWeaponTarget>(ChannelKind::Ordered);
     app.add_client_event::<MoveWeapon>(ChannelKind::Ordered);
-    app.add_mapped_client_event::<SetCrewGoal>(ChannelKind::Ordered);
+    app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
-}
-
-#[derive(Component, Serialize, Deserialize)]
-pub struct ShipIntel(pub Entity);
-
-impl MapEntities for ShipIntel {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
-    }
-}
-
-#[derive(Component, Serialize, Deserialize, Debug)]
-pub struct IntelPackage {
-    pub basic: Entity,
-    // pub weapon_charge: Entity,
-    // pub full: Entity,
-}
-
-impl MapEntities for IntelPackage {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.basic = entity_mapper.map_entity(self.basic);
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct ShieldIntel {
-    pub max_layers: usize,
-    pub layers: usize,
-    pub charge: f32,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct WeaponIntel {
-    pub weapon: Weapon,
-    pub powered: bool,
-}
-
-#[derive(Component, Serialize, Deserialize, Debug, Clone)]
-pub struct BasicIntel {
-    pub max_hull: usize,
-    pub hull: usize,
-    pub rooms: Vec<Option<SystemId>>,
-    pub shields: Option<ShieldIntel>,
-    pub weapons: Option<Vec<WeaponIntel>>,
-}
-
-impl BasicIntel {
-    pub fn new(ship: &Ship) -> Self {
-        Self {
-            max_hull: ship.max_hull,
-            hull: ship.max_hull - ship.damage,
-            rooms: (0..ship.rooms.len())
-                .map(|room| ship.systems.system_in_room(room))
-                .collect(),
-            shields: ship.systems.shields().map(|shields| ShieldIntel {
-                max_layers: shields.max_layers(),
-                layers: shields.layers,
-                charge: shields.charge,
-            }),
-            weapons: ship.systems.weapons().map(|weapons| {
-                weapons
-                    .weapons()
-                    .iter()
-                    .map(|x| WeaponIntel {
-                        weapon: x.weapon.clone(),
-                        powered: x.is_powered(),
-                    })
-                    .collect()
-            }),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -163,11 +90,31 @@ pub struct PlayerReady;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Room {
-    _cells: Vec<usize>,
+    pub cells: Vec<Cell>,
+}
+
+impl Room {
+    fn has_cell(&self, cell: Cell) -> bool {
+        self.cells.iter().any(|x| *x == cell)
+    }
 }
 
 #[derive(Component, Serialize, Deserialize, Debug, Default)]
 pub struct Dead;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Crew {
+    pub name: String,
+    pub nav_status: CrewNavStatus,
+    pub health: f32,
+    pub max_health: f32,
+}
+
+impl Crew {
+    fn is_in_room(&self, room: &Room) -> bool {
+        room.has_cell(self.nav_status.current_cell())
+    }
+}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]
 pub struct Ship {
@@ -175,7 +122,10 @@ pub struct Ship {
     pub systems: ShipSystems,
     pub max_hull: usize,
     pub damage: usize,
-    rooms: Vec<Room>,
+    pub rooms: Vec<Room>,
+    pub crew: Vec<Crew>,
+    nav_mesh: NavMesh,
+    path_graph: PathGraph,
 }
 
 impl MapEntities for Ship {
@@ -186,18 +136,48 @@ impl MapEntities for Ship {
 
 impl Ship {
     pub fn new() -> Self {
+        let rooms = vec![
+            Room {
+                cells: vec![Cell(0), Cell(1), Cell(2), Cell(3)],
+            },
+            Room {
+                cells: vec![Cell(4), Cell(5)],
+            },
+            Room {
+                cells: vec![Cell(6), Cell(7)],
+            },
+        ];
+        let nav_mesh = NavMesh {
+            lines: vec![
+                LineSection([Cell(4), Cell(5)]),
+                LineSection([Cell(6), Cell(7)]),
+                LineSection([Cell(3), Cell(5)]),
+                LineSection([Cell(5), Cell(7)]),
+            ],
+            squares: vec![SquareSection([[Cell(0), Cell(1)], [Cell(2), Cell(3)]])],
+        };
+        let path_graph = PathGraph {
+            edges: [
+                (Cell(0), [Cell(1), Cell(2), Cell(3)].into()),
+                (Cell(1), [Cell(0), Cell(2), Cell(3)].into()),
+                (Cell(2), [Cell(0), Cell(1), Cell(3)].into()),
+                (Cell(3), [Cell(0), Cell(1), Cell(2), Cell(5)].into()),
+                (Cell(4), [Cell(5)].into()),
+                (Cell(5), [Cell(3), Cell(4), Cell(7)].into()),
+                (Cell(6), [Cell(7)].into()),
+                (Cell(7), [Cell(5), Cell(6)].into()),
+            ]
+            .into(),
+        };
         Self {
             reactor: Reactor::new(0),
             systems: default(),
             max_hull: 30,
             damage: 0,
-            rooms: vec![
-                Room {
-                    _cells: vec![0, 1, 2, 3],
-                },
-                Room { _cells: vec![4, 5] },
-                Room { _cells: vec![6, 7] },
-            ],
+            rooms,
+            crew: default(),
+            nav_mesh,
+            path_graph,
         }
     }
 
@@ -209,6 +189,48 @@ impl Ship {
             if let Some(weapons) = ship.systems.weapons_mut() {
                 for projectile in weapons.charge_and_fire_weapons() {
                     commands.spawn(projectile);
+                }
+            }
+            ship.update_crew();
+            ship.update_repair_status();
+        }
+    }
+
+    fn update_repair_status(&mut self) {
+        for (i, room) in self.rooms.iter().enumerate() {
+            if let Some(system) = self.systems.system_in_room(i) {
+                if !self.crew.iter().any(|x| x.is_in_room(room)) {
+                    let system = self.systems.system_mut(system).unwrap();
+                    system.cancel_repair();
+                }
+            }
+        }
+    }
+
+    fn update_crew(&mut self) {
+        for crew in &mut self.crew {
+            crew.nav_status.step(&self.nav_mesh);
+            if let CrewNavStatus::At(cell) = &crew.nav_status {
+                let room = self
+                    .rooms
+                    .iter()
+                    .position(|x| x.cells.iter().any(|x| x == cell))
+                    .unwrap();
+                // if enemy_crew_in_room {
+                //     KILL HIM
+                // } else if fire_in_room {
+                //     stop drop and roll
+                // } else if hull_breach_in_room {
+                //     fix it
+                // } else
+                if let Some(system) = self.systems.system_in_room(room) {
+                    let system = self.systems.system_mut(system).unwrap();
+                    if system.damage() > 0 {
+                        system.crew_repair(1.0 / 768.0);
+                    } else {
+                        // Move to manning station if unoccupied
+                        // Man system
+                    }
                 }
             }
         }
@@ -293,6 +315,65 @@ impl Ship {
             return;
         };
         weapons.set_projectile_weapon_target(weapon_index, target, targeting_self);
+    }
+
+    pub fn move_weapon(&mut self, weapon_index: usize, target_index: usize) {
+        let Some(weapons) = self.systems.weapons_mut() else {
+            eprintln!("Can't move weapon, weapons system not installed.");
+            return;
+        };
+        weapons.move_weapon(weapon_index, target_index);
+    }
+
+    pub fn set_crew_goal(&mut self, crew_index: usize, room_index: usize) {
+        let Some(room) = self.rooms.get(room_index) else {
+            eprintln!("Can't set crew goal, room {room_index} doesn't exist");
+            return;
+        };
+        let is_unoccupied = |cell: Cell| {
+            // cell is unoccupied if all crew are not in it
+            self.crew
+                .iter()
+                .all(|crew| crew.nav_status.occupied_cell() != cell)
+        };
+        let Some(target_cell) = room.cells.iter().cloned().find(|&x| is_unoccupied(x)) else {
+            eprintln!("Can't set crew goal, room {room_index} is fully occupied.");
+            return;
+        };
+        let Some(crew) = self.crew.get_mut(crew_index) else {
+            eprintln!("Can't set crew goal, crew {crew_index} doesn't exist.");
+            return;
+        };
+        let crew = &mut crew.nav_status;
+        let occupied_room = self
+            .rooms
+            .iter()
+            .position(|x| x.cells.iter().any(|x| *x == crew.occupied_cell()))
+            .unwrap();
+        if room_index == occupied_room {
+            eprintln!("Can't set crew goal, crew is already in room {room_index}.");
+            return;
+        }
+
+        let pathing = self.path_graph.pathing_to(target_cell);
+        let Some(path) = self.nav_mesh.find_path(&pathing, crew.current_location()) else {
+            eprintln!(
+                "Can't set crew goal, room {room_index} is unreachable by crew {crew_index}."
+            );
+            return;
+        };
+        let current_location = match crew {
+            CrewNavStatus::At(cell) => self
+                .nav_mesh
+                .section_with_edge(*cell, path.next_waypoint().unwrap())
+                .unwrap()
+                .to_location(*cell),
+            CrewNavStatus::Navigating(nav) => nav.current_location,
+        };
+        *crew = CrewNavStatus::Navigating(CrewNav {
+            path,
+            current_location,
+        });
     }
 
     pub fn set_autofire(&mut self, autofire: bool) {
@@ -597,10 +678,7 @@ mod system {
 
         pub fn depower_weapon(&mut self, index: usize, reactor: &mut Reactor) {
             let Some(weapon) = self.entries.get_mut(index) else {
-                eprintln!(
-                    "Can't depower nonexistent weapon at index
-    {index}."
-                );
+                eprintln!("Can't depower nonexistent weapon at index {index}.");
                 return;
             };
             if !weapon.is_powered() {
@@ -638,7 +716,7 @@ mod system {
             reactor: &mut Reactor,
         ) -> Result<Weapon, ()> {
             if index >= self.entries.len() {
-                eprintln!("Can't remove weapon, no weapon at slot {index}.");
+                eprintln!("Can't remove weapon, no weapon in slot {index}.");
                 return Err(());
             }
             if self.entries[index].is_powered() {
@@ -647,15 +725,18 @@ mod system {
             Ok(self.entries.remove(index).weapon)
         }
 
-        // pub fn shift_weapon_right(&mut self, index: usize) {
-        //     let element = self.entries.remove(index);
-        //     self.entries.insert(index + 1, element);
-        // }
-
-        // pub fn shift_weapon_left(&mut self, index: usize) {
-        //     let element = self.entries.remove(index);
-        //     self.entries.insert(index - 1, element);
-        // }
+        pub fn move_weapon(&mut self, index: usize, target: usize) {
+            if index >= self.entries.len() {
+                eprintln!("Can't move weapon, no weapon in slot {index}.");
+                return;
+            }
+            if target > self.entries.len() - 1 {
+                eprintln!("Can't move weapon, slot {target} is out of bounds.");
+                return;
+            }
+            let element = self.entries.remove(index);
+            self.entries.insert(target, element);
+        }
     }
 
     impl ShipSystem for Weapons {

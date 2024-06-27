@@ -2,6 +2,7 @@ use super::*;
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use common::{events::*, *};
+use intel::ShipIntel;
 
 pub fn adjust_power(
     mut events: EventReader<FromClient<AdjustPower>>,
@@ -76,6 +77,53 @@ pub fn set_projectile_weapon_target(
         };
         let targeting_self = target.map(|x| x.ship_intel) == Some(intel.0);
         ship.set_projectile_weapon_target(weapon_index, target, targeting_self);
+    }
+}
+
+pub fn move_weapon(
+    mut events: EventReader<FromClient<MoveWeapon>>,
+    client_ships: Res<ClientShips>,
+    mut ships: Query<&mut Ship, Without<Dead>>,
+) {
+    for &FromClient {
+        client_id,
+        event: MoveWeapon {
+            weapon_index,
+            target_index,
+        },
+    } in events.read()
+    {
+        let Some(&client_ship) = client_ships.get(&client_id) else {
+            eprintln!("No ship entry for client {client_id:?}.");
+            continue;
+        };
+        let Ok(mut ship) = ships.get_mut(client_ship) else {
+            eprintln!("Entity {client_ship:?} is not a ship.");
+            continue;
+        };
+        ship.move_weapon(weapon_index, target_index);
+    }
+}
+
+pub fn set_crew_goal(
+    mut events: EventReader<FromClient<SetCrewGoal>>,
+    client_ships: Res<ClientShips>,
+    mut ships: Query<&mut Ship, Without<Dead>>,
+) {
+    for &FromClient {
+        client_id,
+        event: SetCrewGoal { crew, target_room },
+    } in events.read()
+    {
+        let Some(&client_ship) = client_ships.get(&client_id) else {
+            eprintln!("No ship entry for client {client_id:?}.");
+            continue;
+        };
+        let Ok(mut ship) = ships.get_mut(client_ship) else {
+            eprintln!("Entity {client_ship:?} is not a ship.");
+            continue;
+        };
+        ship.set_crew_goal(crew, target_room);
     }
 }
 

@@ -18,6 +18,8 @@ use bevy_replicon_renet::{
 };
 use common::{projectiles::*, *};
 use events::*;
+use intel::*;
+use pathing::Cell;
 use projectiles::*;
 
 fn main() {
@@ -49,6 +51,8 @@ fn main() {
                     adjust_power,
                     weapon_power,
                     set_projectile_weapon_target,
+                    move_weapon,
+                    set_crew_goal,
                     set_autofire,
                 ),
                 (
@@ -255,6 +259,27 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     ship.install_shields(0);
     ship.install_engines(1);
     ship.install_weapons(2);
+
+    // TODO Add a dedicated API to bring on crew
+    ship.crew.push(Crew {
+        name: "Fish".into(),
+        nav_status: pathing::CrewNavStatus::At(Cell(0)),
+        health: 100.0,
+        max_health: 100.0,
+    });
+    ship.crew.push(Crew {
+        name: "Virus".into(),
+        nav_status: pathing::CrewNavStatus::At(Cell(4)),
+        health: 100.0,
+        max_health: 100.0,
+    });
+    ship.crew.push(Crew {
+        name: "Stick".into(),
+        nav_status: pathing::CrewNavStatus::At(Cell(6)),
+        health: 100.0,
+        max_health: 100.0,
+    });
+
     let shields = ship.systems.shields_mut().unwrap();
     for _ in 0..7 {
         shields.upgrade();

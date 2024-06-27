@@ -4,6 +4,11 @@ use super::*;
 pub struct SystemStatus {
     upgrade_level: usize,
     damage: usize,
+    /// Current progress in either damaging or repairing a system. A positive number means enemy
+    /// crew are trying to break the system, and negative means it's being repaired. Once it reaches
+    /// 1 or -1, it resets and `damage` is incremented or decremented. If enemy crew leave the room,
+    /// positive values are reset to zero, and if all friendly crew leave, negative values are.
+    damage_progress: f32,
 }
 
 impl SystemStatus {
@@ -17,6 +22,7 @@ impl Default for SystemStatus {
         Self {
             upgrade_level: 1,
             damage: 0,
+            damage_progress: 0.0,
         }
     }
 }
@@ -32,18 +38,60 @@ pub trait ShipSystem {
         let SystemStatus {
             upgrade_level,
             damage,
+            damage_progress,
         } = self.system_status_mut();
-        // Canonical impl for inevitable trait refactor
         // Cap max damage to our upgrade level
         let actual_amount = amount.min(*upgrade_level - *damage);
         // Apply damage
         *damage += actual_amount;
         // Compute new max power
         let new_max = *upgrade_level - *damage;
+        // Cancel any current sabotage
+        if new_max == 0 {
+            *damage_progress = damage_progress.min(0.0);
+        }
         // Reduce power until we're back within our system power budget
         while self.current_power() > new_max {
             self.remove_power(reactor);
         }
+    }
+
+    fn repair_system(&mut self, amount: usize) {
+        let SystemStatus {
+            damage,
+            damage_progress,
+            ..
+        } = self.system_status_mut();
+        // Cap max repair to our current damage level
+        *damage = damage.saturating_sub(amount);
+        // Cancel any current repair
+        if *damage == 0 {
+            *damage_progress = damage_progress.max(0.0);
+        }
+    }
+
+    fn crew_damage(&mut self, amount: f32, reactor: &mut Reactor) {
+        let damage_progress = &mut self.system_status_mut().damage_progress;
+        *damage_progress += amount;
+        if *damage_progress >= 1.0 {
+            *damage_progress = 0.0;
+            self.damage_system(1, reactor);
+            // TODO upgrade crew combat skill
+        }
+    }
+
+    fn crew_repair(&mut self, amount: f32) {
+        let damage_progress = &mut self.system_status_mut().damage_progress;
+        *damage_progress -= amount;
+        if *damage_progress <= -1.0 {
+            *damage_progress = 0.0;
+            self.repair_system(1);
+            // TODO upgrade crew repair skill
+        }
+    }
+
+    fn cancel_repair(&mut self) {
+        self.system_status_mut().damage_progress = 0.0;
     }
 
     fn upgrade(&mut self) {

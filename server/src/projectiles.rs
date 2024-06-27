@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use common::{projectiles::*, Ship, ShipIntel};
+use common::{intel::ShipIntel, projectiles::*, Ship};
 use rand::{thread_rng, Rng};
 
 pub fn projectile_traversal(mut projectiles: Query<(&TraversalSpeed, &mut Traversal)>) {
@@ -92,6 +92,18 @@ pub fn projectile_collide_hull(
         let ship = ship.as_mut();
         ship.damage = (ship.damage + *damage).min(ship.max_hull);
         commands.entity(projectile).despawn();
+        for crew in &mut ship.crew {
+            let crew_cell = crew.nav_status.current_cell();
+            let crew_room = ship
+                .rooms
+                .iter()
+                .position(|x| x.cells.iter().any(|x| *x == crew_cell))
+                .unwrap();
+            if crew_room == target.room {
+                crew.health -= 15.0 * *damage as f32;
+            }
+        }
+        ship.crew.retain(|crew| crew.health > 0.0);
         let Some(system) = ship.systems.system_in_room(target.room) else {
             continue;
         };
