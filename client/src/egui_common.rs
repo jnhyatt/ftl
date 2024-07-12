@@ -114,12 +114,25 @@ fn power_bar(
     damage: usize,
     system: SystemId,
 ) -> Option<AdjustPower> {
+    let hotkey = match system {
+        SystemId::Shields => 'A',
+        SystemId::Weapons => 'W',
+        SystemId::Engines => 'S',
+    };
     let mut result = None;
     ui.horizontal(|ui| {
-        if ui.button("-").clicked() {
+        if ui
+            .button("-")
+            .on_hover_text(format!("Remove power (Hotkey: Shift+{hotkey})"))
+            .clicked()
+        {
             result = Some(AdjustPower::remove(system));
         }
-        if ui.button("+").clicked() {
+        if ui
+            .button("+")
+            .on_hover_text(format!("Add power (Hotkey: {hotkey})"))
+            .clicked()
+        {
             result = Some(AdjustPower::request(system));
         }
         for _ in 0..current {
@@ -227,7 +240,8 @@ pub fn weapon_power_ui(
 ) {
     let mut new_powered = powered;
     for _ in 0..weapon.power {
-        ui.checkbox(&mut new_powered, "");
+        ui.checkbox(&mut new_powered, "")
+            .on_hover_text(format!("Toggle weapon power (Hotkey: {})", index + 1));
     }
     if new_powered != powered {
         let dir = if new_powered {
@@ -235,7 +249,10 @@ pub fn weapon_power_ui(
         } else {
             PowerDir::Remove
         };
-        weapon_power.send(WeaponPower { dir, index });
+        weapon_power.send(WeaponPower {
+            dir,
+            weapon_index: index,
+        });
     }
 }
 

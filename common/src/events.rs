@@ -34,7 +34,7 @@ pub struct WeaponPower {
     /// Whether to request power from or return power to the reactor.
     pub dir: PowerDir,
     /// Which weapon should be powered or depowered.
-    pub index: usize,
+    pub weapon_index: usize,
 }
 
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
@@ -66,7 +66,7 @@ pub struct SetCrewGoal {
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetAutofire(pub bool);
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Reflect, Serialize, Deserialize, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PowerDir {
     Request,
     Remove,

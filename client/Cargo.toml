@@ -24,4 +24,5 @@ bevy_mod_picking = { version = "0.19.1", default-features = false, features = [
 ] }
 common = { path = "../common" }
 is-even = "1.0.0"
+leafwing-input-manager = "0.13"
 rand = { workspace = true }

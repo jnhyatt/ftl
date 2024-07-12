@@ -349,7 +349,7 @@ fn reset_gamestate(world: &mut World) {
 
 fn spawn_player(world: &mut World, client_id: ClientId) {
     let mut ship = Ship::new();
-    for _ in 0..24 {
+    for _ in 0..8 {
         ship.reactor.upgrade();
     }
     ship.install_shields(0);
@@ -377,21 +377,19 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     });
 
     let (shields, _) = ship.systems.shields.as_mut().unwrap();
-    for _ in 0..7 {
+    for _ in 0..3 {
         shields.upgrade();
     }
     let (engines, _) = ship.systems.engines.as_mut().unwrap();
-    for _ in 0..7 {
+    for _ in 0..3 {
         engines.upgrade();
     }
     let (weapons, _) = ship.systems.weapons.as_mut().unwrap();
-    for _ in 0..7 {
+    for _ in 0..3 {
         weapons.upgrade();
     }
-    weapons.add_weapon(0, Weapon(0));
+    weapons.add_weapon(0, Weapon(2));
     weapons.add_weapon(1, Weapon(0));
-    weapons.add_weapon(2, Weapon(1));
-    weapons.add_weapon(3, Weapon(2));
 
     let crew_vision = world.spawn((Replicated, ship.crew_vision_intel())).id();
     let interior = world.spawn((Replicated, ship.interior_intel())).id();

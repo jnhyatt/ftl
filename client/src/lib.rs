@@ -39,8 +39,8 @@ fn connect_to_server(channels: Res<RepliconChannels>, mut commands: Commands) {
         .unwrap();
     let client_id = current_time.as_millis() as u64;
     let server_addr = SocketAddr::new(
-        // Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
-        Ipv6Addr::LOCALHOST.into(),
+        Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
+        // Ipv6Addr::LOCALHOST.into(),
         5000,
     );
     let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))).unwrap();

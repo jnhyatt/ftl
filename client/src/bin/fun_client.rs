@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use bevy_mod_picking::prelude::*;
 use client::{
@@ -10,13 +10,19 @@ use client::{
     select::{selection_plugin, SelectEvent, Selectable, Selected, SelectionEnabled},
 };
 use common::{
-    events::{MoveWeapon, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower},
+    events::{
+        AdjustPower, MoveWeapon, PowerDir, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower,
+    },
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
     pathing::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
     projectiles::{FiredFrom, RoomTarget, Traversal},
-    Dead, ReadyState,
+    Dead, ReadyState, SystemId,
 };
 use is_even::IsEven;
+use leafwing_input_manager::{
+    action_state::ActionState, input_map::InputMap, plugin::InputManagerPlugin, Actionlike,
+    InputManagerBundle,
+};
 use rand::{thread_rng, Rng};
 use std::f32::consts::TAU;
 
@@ -40,6 +46,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
             EguiPlugin,
             DefaultPickingPlugins,
+            InputManagerPlugin::<Controls>::default(),
             client_plugin,
             selection_plugin,
         ))
@@ -59,6 +66,7 @@ fn main() {
         )
         .add_systems(Update, (sync_crew_count, sync_crew_positions).chain())
         .add_systems(Update, (spawn_projectile_graphics, update_bullet_graphic))
+        .add_systems(Update, (controls, draw_targets))
         .run();
 }
 
@@ -251,6 +259,58 @@ fn add_ship_graphic(
             transform,
             ..default()
         });
+        commands.entity(ship).with_children(|ship| {
+            ship.spawn((
+                Pickable::IGNORE,
+                SpriteBundle {
+                    transform: Transform::from_translation(delete_me(0).extend(1.5))
+                        .with_rotation(transform.rotation.inverse()),
+                    texture: assets.load("shields.png"),
+                    ..default()
+                },
+            ));
+            ship.spawn((
+                Pickable::IGNORE,
+                SpriteBundle {
+                    transform: Transform::from_translation(delete_me(1).extend(1.5))
+                        .with_rotation(transform.rotation.inverse()),
+                    texture: assets.load("engines.png"),
+                    ..default()
+                },
+            ));
+            ship.spawn((
+                Pickable::IGNORE,
+                SpriteBundle {
+                    transform: Transform::from_translation(delete_me(2).extend(1.5))
+                        .with_rotation(transform.rotation.inverse()),
+                    texture: assets.load("weapons.png"),
+                    ..default()
+                },
+            ));
+        });
+        if ship == my_ship {
+            use KeyCode::*;
+            use SystemId::*;
+            commands.entity(ship).insert(InputManagerBundle::with_map(
+                InputMap::default()
+                    .insert(Controls::power_system(Shields), KeyA)
+                    .insert(Controls::power_system(Shields), KeyA)
+                    .insert(Controls::power_system(Engines), KeyS)
+                    .insert(Controls::power_system(Weapons), KeyW)
+                    .insert(Controls::power_weapon(0), Digit1)
+                    .insert(Controls::power_weapon(1), Digit2)
+                    .insert(Controls::power_weapon(2), Digit3)
+                    .insert(Controls::power_weapon(3), Digit4)
+                    .insert_chord(Controls::depower_system(Shields), [ShiftLeft, KeyA])
+                    .insert_chord(Controls::depower_system(Engines), [ShiftLeft, KeyS])
+                    .insert_chord(Controls::depower_system(Weapons), [ShiftLeft, KeyW])
+                    .insert_chord(Controls::depower_weapon(0), [ShiftLeft, Digit1])
+                    .insert_chord(Controls::depower_weapon(1), [ShiftLeft, Digit2])
+                    .insert_chord(Controls::depower_weapon(2), [ShiftLeft, Digit3])
+                    .insert_chord(Controls::depower_weapon(3), [ShiftLeft, Digit4])
+                    .build(),
+            ));
+        }
         for (tex, pos, room) in cells.iter().cloned() {
             let pos = (pos.as_vec2() - offset) * 35.0 + pixel_offset;
             let cell = commands
@@ -339,6 +399,7 @@ fn weapons_panel(
     self_intel: Query<&SelfIntel>,
     ships: Query<&ShipIntel, Without<Dead>>,
     charge_intel: Query<&WeaponChargeIntel>,
+    mut targeting: EventWriter<SetProjectileWeaponTarget>,
     mut weapon_power: EventWriter<WeaponPower>,
     mut weapon_ordering: EventWriter<MoveWeapon>,
     mut commands: Commands,
@@ -358,16 +419,26 @@ fn weapons_panel(
     let weapon_charges = charge_intel.get(intel.weapon_charge).unwrap();
     egui::Window::new("Weapons").show(ui.ctx_mut(), |ui| {
         let last_weapon = weapons.weapons.len() - 1;
-        for (index, weapon) in weapons.weapons.iter().enumerate() {
+        for (weapon_index, weapon) in weapons.weapons.iter().enumerate() {
             ui.horizontal(|ui| {
-                weapon_rearrange_ui(ui, index, last_weapon, &mut weapon_ordering);
-                weapon_power_ui(ui, weapon.powered, index, &weapon.weapon, &mut weapon_power);
+                weapon_rearrange_ui(ui, weapon_index, last_weapon, &mut weapon_ordering);
+                weapon_power_ui(
+                    ui,
+                    weapon.powered,
+                    weapon_index,
+                    &weapon.weapon,
+                    &mut weapon_power,
+                );
                 ui.label(weapon.weapon.name);
-                weapon_charge_ui(ui, weapon_charges.levels[index], &weapon.weapon);
+                weapon_charge_ui(ui, weapon_charges.levels[weapon_index], &weapon.weapon);
 
                 if ui.button("Target").clicked() {
                     // Disable selection, target weapon `index`
-                    commands.insert_resource(TargetingWeapon(index));
+                    targeting.send(SetProjectileWeaponTarget {
+                        weapon_index,
+                        target: None,
+                    });
+                    commands.insert_resource(TargetingWeapon(weapon_index));
                     commands.remove_resource::<SelectionEnabled>();
                 }
             });
@@ -424,9 +495,12 @@ fn update_bullet_graphic(
     )>,
 ) {
     for (traversal, target, origin, incidence, mut bullet) in &mut bullets {
+        let target_transform = ships.get(target.ship).unwrap();
         let origin = ships.get(origin.ship).unwrap().translation.xy(); // TODO weapon mount
         let out_mid = Vec2::X * 1000.0;
-        let destination = ships.get(target.ship).unwrap().translation.xy(); // TODO room
+        let destination = (target_transform.rotation * delete_me(target.room).extend(3.0)
+            + target_transform.translation)
+            .xy(); // TODO room
         let in_mid = destination - 1000.0 * ***incidence;
 
         bullet.translation = if **traversal < 0.5 {
@@ -440,5 +514,110 @@ fn update_bullet_graphic(
         } else {
             Quat::from_rotation_arc_2d(Vec2::X, ***incidence)
         };
+    }
+}
+
+#[derive(Actionlike, Reflect, Clone, Hash, PartialEq, Eq)]
+enum Controls {
+    SystemPower { dir: PowerDir, system: SystemId },
+    WeaponPower { dir: PowerDir, weapon_index: usize },
+}
+
+impl Controls {
+    fn power_system(system: SystemId) -> Self {
+        let dir = PowerDir::Request;
+        Self::SystemPower { dir, system }
+    }
+
+    fn depower_system(system: SystemId) -> Self {
+        let dir = PowerDir::Remove;
+        Self::SystemPower { dir, system }
+    }
+
+    fn power_weapon(weapon_index: usize) -> Self {
+        let dir = PowerDir::Request;
+        Self::WeaponPower { dir, weapon_index }
+    }
+
+    fn depower_weapon(weapon_index: usize) -> Self {
+        let dir = PowerDir::Remove;
+        Self::WeaponPower { dir, weapon_index }
+    }
+}
+
+fn controls(
+    ships: Query<(&ShipIntel, &ActionState<Controls>)>,
+    mut targeting: EventWriter<SetProjectileWeaponTarget>,
+    mut power: EventWriter<AdjustPower>,
+    mut weapon_power: EventWriter<WeaponPower>,
+    mut commands: Commands,
+) {
+    for (ship, actions) in &ships {
+        for action in actions.get_just_pressed() {
+            match action {
+                Controls::SystemPower { dir, system } => {
+                    power.send(AdjustPower { dir, system });
+                }
+                Controls::WeaponPower { dir, weapon_index } => {
+                    let Some(weapons) = &ship.basic.weapons else {
+                        continue;
+                    };
+                    if weapons.weapons[weapon_index].powered && dir == PowerDir::Request {
+                        targeting.send(SetProjectileWeaponTarget {
+                            weapon_index,
+                            target: None,
+                        });
+                        commands.insert_resource(TargetingWeapon(weapon_index));
+                    } else {
+                        weapon_power.send(WeaponPower { dir, weapon_index });
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn draw_targets(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    self_intel: Query<&SelfIntel>,
+    ships: Query<&Transform>,
+    targeting_weapon: Option<Res<TargetingWeapon>>,
+    mut gizmos: Gizmos,
+) {
+    let Ok(self_intel) = self_intel.get_single() else {
+        return;
+    };
+    let size_color = |index| match index {
+        0 => (24.0, Color::RED),
+        1 => (28.0, Color::ORANGE_RED),
+        2 => (32.0, Color::ORANGE),
+        3 => (36.0, Color::YELLOW),
+        _ => unreachable!(),
+    };
+    if let Some(cursor) = windows.get_single().ok().and_then(|x| x.cursor_position()) {
+        let world_cursor = cursor * Vec2::new(1.0, -1.0) + Vec2::new(-640.0, 360.0);
+        if let Some(targeting) = targeting_weapon {
+            let (size, color) = size_color(targeting.0);
+            gizmos.circle(world_cursor.extend(5.0), Direction3d::Z, size, color);
+        }
+    }
+
+    for (i, target) in self_intel.weapon_targets.iter().enumerate() {
+        if let Some(target) = target {
+            let target_transform = ships.get(target.ship).unwrap();
+            let room_location = delete_me(target.room).extend(2.0);
+            let pos = target_transform.rotation * room_location + target_transform.translation;
+            let (size, color) = size_color(i);
+            gizmos.circle(pos, Direction3d::Z, size, color);
+        }
+    }
+}
+
+fn delete_me(room: usize) -> Vec2 {
+    match room {
+        0 => Vec2::new(-35.0, 0.0),
+        1 => Vec2::new(17.5, 0.0),
+        2 => Vec2::new(52.5, 0.0),
+        _ => unreachable!(),
     }
 }

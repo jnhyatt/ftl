@@ -42,7 +42,7 @@ pub fn weapon_power(
 ) {
     for &FromClient {
         client_id,
-        event: WeaponPower { dir, index },
+        event: WeaponPower { dir, weapon_index: index },
     } in events.read()
     {
         let Some(&client_ship) = client_ships.get(&client_id) else {

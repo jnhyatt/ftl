@@ -55,7 +55,7 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
 }
 
-#[derive(Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Reflect, Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemId {
     Shields,
     Weapons,
