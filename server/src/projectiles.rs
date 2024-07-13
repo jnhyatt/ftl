@@ -5,7 +5,7 @@ use bevy_replicon::core::Replicated;
 use common::{
     compute_dodge_chance,
     projectiles::{FiredFrom, NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage},
-    WeaponType,
+    weapon::WeaponType,
 };
 use rand::{thread_rng, Rng};
 

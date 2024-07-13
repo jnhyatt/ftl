@@ -20,7 +20,9 @@ use common::{
     intel::{SelfIntel, ShipIntel},
     nav::{Cell, CrewNavStatus},
     projectiles::{FiredFrom, NeedsDodgeTest, WeaponDamage},
-    protocol_plugin, Crew, Dead, PlayerReady, ReadyState, Weapon, PROTOCOL_ID,
+    protocol_plugin,
+    weapon::Weapon,
+    Crew, Dead, PlayerReady, ReadyState, PROTOCOL_ID,
 };
 use events::{
     adjust_power, move_weapon, set_autofire, set_crew_goal, set_projectile_weapon_target,

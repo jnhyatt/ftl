@@ -2,7 +2,10 @@ use crate::{
     reactor::Reactor,
     ship_system::{PowerContext, ShipSystem, SystemStatus},
 };
-use common::{projectiles::RoomTarget, Weapon, WeaponType};
+use common::{
+    projectiles::RoomTarget,
+    weapon::{Weapon, WeaponType},
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct Weapons {
