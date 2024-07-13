@@ -9,7 +9,7 @@ bevy = { version = "0.13.2", default-features = false, features = [
 bevy_replicon = "0.26.3"
 bevy_replicon_renet = { version = "0.3.0", features = ["renet_transport"] }
 rand = "0.8.5"
-serde = { version = "1.0.203", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 
 # The following optimization levels are recommended by Bevy to speed iteration
 
