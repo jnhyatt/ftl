@@ -4,7 +4,7 @@ use common::{
         BasicIntel, CrewVisionIntel, InteriorIntel, RoomIntel, SelfIntel, ShieldIntel,
         SystemsIntel, WeaponChargeIntel, WeaponIntel, WeaponsIntel,
     },
-    pathing::{Cell, CrewNav, CrewNavStatus, LineSection, NavMesh, PathGraph, SquareSection},
+    nav::{Cell, CrewNav, CrewNavStatus, LineSection, NavMesh, PathGraph, SquareSection},
     projectiles::RoomTarget,
     Crew, Room, SystemId,
 };
@@ -358,7 +358,7 @@ impl Ship {
         let current_location = match crew {
             CrewNavStatus::At(cell) => self
                 .nav_mesh
-                .section_with_edge(*cell, path.next_waypoint().unwrap())
+                .section_with_path(*cell, path.next_waypoint().unwrap())
                 .unwrap()
                 .to_location(*cell),
             CrewNavStatus::Navigating(nav) => nav.current_location,

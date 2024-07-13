@@ -14,7 +14,7 @@ use common::{
         AdjustPower, MoveWeapon, PowerDir, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower,
     },
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
-    pathing::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
+    nav::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
     projectiles::{FiredFrom, RoomTarget, Traversal},
     Dead, ReadyState, SystemId,
 };

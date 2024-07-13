@@ -1,6 +1,6 @@
 pub mod events;
 pub mod intel;
-pub mod pathing;
+pub mod nav;
 pub mod projectiles;
 
 mod replicate_resource;
@@ -15,7 +15,7 @@ use intel::{
     CrewIntel, CrewNavIntel, CrewVisionIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel,
     WeaponChargeIntel,
 };
-use pathing::{Cell, CrewNavStatus};
+use nav::{Cell, CrewNavStatus};
 use projectiles::{FiredFrom, NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage};
 use replicate_resource::ReplicateResExt;
 use serde::{Deserialize, Serialize};

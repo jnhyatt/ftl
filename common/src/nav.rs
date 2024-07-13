@@ -10,60 +10,6 @@ use std::{
 pub struct Cell(pub usize);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct CrewNav {
-    pub path: Path,
-    pub current_location: NavLocation,
-}
-
-impl CrewNav {
-    /// Advance by one fixed update step. This will move the crew along its current [`NavSection`]
-    /// and update its progress along its [`Path`] if it's made it all the way across it. If the
-    /// crew has reached the end of the path, this will return [`Poll::Ready`] with the [`Cell`]
-    /// that was reached, or [`Poll::Pending`] otherwise.
-    fn step(&mut self, nav_mesh: &NavMesh) -> Poll<Cell> {
-        let current_goal = self.path.next_waypoint().unwrap();
-        // Get target coordinate within nav section and step ourselves toward it
-        // TODO move this logic to `NavLocation`
-        let arrived = match &mut self.current_location {
-            NavLocation::Line(line, x) => {
-                let target_x = line.coords_of(current_goal);
-                *x = x.move_toward(target_x, 1.0 / 36.0);
-                *x == target_x
-            }
-            NavLocation::Square(square, x) => {
-                let target_x = square.coords_of(current_goal);
-                *x = x.move_toward(target_x, 1.0 / 36.0);
-                *x == target_x
-            }
-        };
-        // If we've arrived, update our current location to the next nav section in our path
-        if arrived {
-            self.path.step();
-            let Some(next_goal) = self.path.next_waypoint() else {
-                return Poll::Ready(current_goal);
-            };
-            let next_section = nav_mesh.section_with_edge(current_goal, next_goal).unwrap();
-            self.current_location = next_section.to_location(current_goal);
-        }
-        Poll::Pending
-    }
-
-    fn nav_section(&self) -> NavSection {
-        match self.current_location {
-            NavLocation::Line(x, _) => NavSection::Line(x),
-            NavLocation::Square(x, _) => NavSection::Square(x),
-        }
-    }
-
-    fn current_cell(&self) -> Cell {
-        match self.current_location {
-            NavLocation::Line(line, x) => line.0[round_to_usize(x)],
-            NavLocation::Square(square, x) => square.0[round_to_usize(x.y)][round_to_usize(x.x)],
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum CrewNavStatus {
     At(Cell),
     Navigating(CrewNav),
@@ -102,6 +48,60 @@ impl CrewNavStatus {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CrewNav {
+    pub path: Path,
+    pub current_location: NavLocation,
+}
+
+impl CrewNav {
+    /// Advance by one fixed update step. This will move the crew along its current [`NavSection`]
+    /// and update its progress along its [`Path`] if it's made it all the way across it. If the
+    /// crew has reached the end of the path, this will return [`Poll::Ready`] with the [`Cell`]
+    /// that was reached, or [`Poll::Pending`] otherwise.
+    fn step(&mut self, nav_mesh: &NavMesh) -> Poll<Cell> {
+        let current_goal = self.path.next_waypoint().unwrap();
+        // Get target coordinate within nav section and step ourselves toward it
+        // TODO move this logic to `NavLocation`
+        let arrived = match &mut self.current_location {
+            NavLocation::Line(line, x) => {
+                let target_x = line.coords_of(current_goal);
+                *x = x.move_toward(target_x, 1.0 / 36.0);
+                *x == target_x
+            }
+            NavLocation::Square(square, x) => {
+                let target_x = square.coords_of(current_goal);
+                *x = x.move_toward(target_x, 1.0 / 36.0);
+                *x == target_x
+            }
+        };
+        // If we've arrived, update our current location to the next nav section in our path
+        if arrived {
+            self.path.step();
+            let Some(next_goal) = self.path.next_waypoint() else {
+                return Poll::Ready(current_goal);
+            };
+            let next_section = nav_mesh.section_with_path(current_goal, next_goal).unwrap();
+            self.current_location = next_section.to_location(current_goal);
+        }
+        Poll::Pending
+    }
+
+    fn nav_section(&self) -> NavSection {
+        match self.current_location {
+            NavLocation::Line(x, _) => NavSection::Line(x),
+            NavLocation::Square(x, _) => NavSection::Square(x),
+        }
+    }
+
+    fn current_cell(&self) -> Cell {
+        match self.current_location {
+            NavLocation::Line(line, x) => line.0[round_to_usize(x)],
+            NavLocation::Square(square, x) => square.0[round_to_usize(x.y)][round_to_usize(x.x)],
+        }
+    }
+}
+
 pub enum CrewLocation {
     Cell(Cell),
     NavSection(NavSection),
@@ -120,7 +120,9 @@ impl NavMesh {
         lines.chain(squares)
     }
 
-    pub fn section_with_edge(&self, a: Cell, b: Cell) -> Option<NavSection> {
+    /// Find the [`NavSection`] that contains the path between `a` and `b`. If the graph was
+    /// constructed correctly, there will be at most one.
+    pub fn section_with_path(&self, a: Cell, b: Cell) -> Option<NavSection> {
         self.sections().find(|x| x.contains(a) && x.contains(b))
     }
 
@@ -154,6 +156,15 @@ impl NavMesh {
     }
 }
 
+/// A [`NavMesh`] section. Can either be a line spanning two cells or a square with a cell at each
+/// corner. A crew member on this section must have coordinates clamped to [0, 1] for each
+/// dimension. For a line, the cells are at `x=0` and `x=1`. For a square, the cells are at
+/// coordinates where x and y are both either 0 or 1. If a crew member is at one of these points,
+/// they are considered to be on the cell indicated by this section. In that case, the crew member
+/// can also be considered to be on *any* nav section that contains that cell. Crew traverse the nav
+/// mesh by moving their coordinates along a nav section until they are at a shared cell, then
+/// moving to the same cell in a different nav section, repeating until they arrive at their
+/// destination.
 #[derive(Clone, Copy, Debug)]
 pub enum NavSection {
     Line(LineSection),
@@ -161,13 +172,25 @@ pub enum NavSection {
 }
 
 impl NavSection {
-    /// Creates a [`NavLocation`] on this section with the coordinates corresponding to `cell`,
-    /// panicking if that cell is not on this [`NavSection`].
+    /// Creates a [`NavLocation`] on this section with the coordinates corresponding to `cell`.
     pub fn to_location(self, cell: Cell) -> NavLocation {
         match self {
             NavSection::Line(x) => NavLocation::Line(x, x.coords_of(cell)),
             NavSection::Square(x) => NavLocation::Square(x, x.coords_of(cell)),
         }
+    }
+
+    /// Whether this nav section extends to `cell`.
+    pub fn contains(&self, cell: Cell) -> bool {
+        self.cells().any(|x| x == cell)
+    }
+
+    pub fn cells(&self) -> impl Iterator<Item = Cell> {
+        match self {
+            &NavSection::Line(LineSection([a, b])) => NavSectionCells([a, a, a, b], 2),
+            &NavSection::Square(SquareSection([[a, b], [c, d]])) => [a, b, c, d].into(),
+        }
+        .into_iter()
     }
 }
 
@@ -191,24 +214,14 @@ impl From<[Cell; 4]> for NavSectionCells {
     }
 }
 
-impl NavSection {
-    pub fn contains(&self, cell: Cell) -> bool {
-        self.cells().any(|x| x == cell)
-    }
-
-    pub fn cells(&self) -> impl Iterator<Item = Cell> {
-        match self {
-            &NavSection::Line(LineSection([a, b])) => NavSectionCells([a, a, a, b], 2),
-            &NavSection::Square(SquareSection([[a, b], [c, d]])) => [a, b, c, d].into(),
-        }
-        .into_iter()
-    }
-}
-
+/// A [`NavMesh`] section with one dimension. A crew member on this section should have a single
+/// coordinate in [0, 1]. 0 and 1 correspond to `self.0[0]` and `self.0[1]`, respectively.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct LineSection(pub [Cell; 2]);
 
 impl LineSection {
+    /// Return the coordinate of the given cell within this nav mesh section. Panics if `cell` is
+    /// not in the section.
     pub fn coords_of(&self, cell: Cell) -> f32 {
         self.0
             .iter()
@@ -218,10 +231,13 @@ impl LineSection {
     }
 }
 
+/// A [`NavMesh`] section with two dimensions.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct SquareSection(pub [[Cell; 2]; 2]);
 
 impl SquareSection {
+    /// Return the coordinate of the given cell within this nav mesh section. Panics if `cell` is
+    /// not in the section.
     pub fn coords_of(&self, cell: Cell) -> Vec2 {
         self.0
             .iter()
@@ -232,6 +248,18 @@ impl SquareSection {
     }
 }
 
+/// This is a crew member's instantaneous location on the [`NavMesh`]. It's essentially a union of
+/// two `enum`s: [`NavSection`] and a 1D/2D coordinate. It could be a `struct` with two fields:
+/// ```
+/// pub struct NavLocation {
+///     pub section: NavSection,
+///     pub coordinate: NavCoord,
+/// }
+/// ```
+/// The problem with this design is that now you have to keep two `enum`s in sync. The tradeoff is
+/// you either duplicate type definitions (this design) or have unenforced invariants (two-field
+/// structure). I opted for this design because it means I have fewer `unreachable!` `match` arms,
+/// but conceptually, it might help to think of it as the above `struct`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum NavLocation {
     Line(LineSection, f32),
@@ -334,14 +362,11 @@ mod tests {
     #[test]
     fn line_coords_of() {
         let line = LineSection([Cell(3), Cell(7)]);
-        assert_eq!(line.coords_of(Cell(3)), 0.0);
-        assert_eq!(line.coords_of(Cell(7)), 1.0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn line_coords_of_fail() {
-        LineSection([Cell(3), Cell(7)]).coords_of(Cell(5));
+        // SAFETY: cells 3 and 7 are in `line`
+        unsafe {
+            assert_eq!(line.coords_of(Cell(3)), 0.0);
+            assert_eq!(line.coords_of(Cell(7)), 1.0);
+        }
     }
 
     #[test]

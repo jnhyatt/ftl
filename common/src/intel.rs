@@ -26,7 +26,7 @@
 //! - **Slug crewmember**: crew locations for enemy ships.
 
 use crate::{
-    pathing::{Cell, NavLocation},
+    nav::{Cell, NavLocation},
     projectiles::RoomTarget,
     Crew, SystemId, Weapon,
 };

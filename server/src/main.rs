@@ -18,7 +18,7 @@ use bevy_replicon_renet::{
 };
 use common::{
     intel::{SelfIntel, ShipIntel},
-    pathing::{Cell, CrewNavStatus},
+    nav::{Cell, CrewNavStatus},
     projectiles::{FiredFrom, NeedsDodgeTest, WeaponDamage},
     protocol_plugin, Crew, Dead, PlayerReady, ReadyState, Weapon, PROTOCOL_ID,
 };
