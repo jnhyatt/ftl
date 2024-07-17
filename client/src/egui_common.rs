@@ -5,8 +5,9 @@ use common::{
     compute_dodge_chance,
     events::{AdjustPower, MoveWeapon, PowerDir, WeaponPower},
     intel::{SelfIntel, ShipIntel, SystemsIntel},
+    lobby::{PlayerReady, ReadyState},
+    ship::{Dead, SystemId},
     weapon::Weapon,
-    Dead, PlayerReady, ReadyState, SystemId,
 };
 
 pub fn status_panel(

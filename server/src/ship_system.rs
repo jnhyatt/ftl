@@ -1,7 +1,7 @@
 use crate::{engines::Engines, reactor::Reactor, shields::Shields, weapons::Weapons};
 use common::{
     intel::{SystemDamageIntel, SystemIntel},
-    SystemId,
+    ship::SystemId,
 };
 use strum::IntoEnumIterator;
 

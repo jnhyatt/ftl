@@ -1,7 +1,7 @@
 use bevy::{ecs::entity::MapEntities, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{projectiles::RoomTarget, SystemId};
+use crate::{projectiles::RoomTarget, ship::SystemId};
 
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct AdjustPower {

@@ -5,7 +5,7 @@ use common::{
         AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetProjectileWeaponTarget,
         WeaponPower,
     },
-    Dead,
+    ship::Dead,
 };
 
 use crate::{ship::Ship, ClientShips};
@@ -42,7 +42,10 @@ pub fn weapon_power(
 ) {
     for &FromClient {
         client_id,
-        event: WeaponPower { dir, weapon_index: index },
+        event: WeaponPower {
+            dir,
+            weapon_index: index,
+        },
     } in events.read()
     {
         let Some(&client_ship) = client_ships.get(&client_id) else {
@@ -118,7 +121,10 @@ pub fn set_crew_goal(
 ) {
     for &FromClient {
         client_id,
-        event: SetCrewGoal { crew, room: target_room },
+        event: SetCrewGoal {
+            crew,
+            room: target_room,
+        },
     } in events.read()
     {
         let Some(&client_ship) = client_ships.get(&client_id) else {

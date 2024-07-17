@@ -10,8 +10,9 @@ use client::{
 use common::{
     events::{MoveWeapon, SetProjectileWeaponTarget, WeaponPower},
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
+    lobby::ReadyState,
     projectiles::{NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage},
-    Dead, ReadyState,
+    ship::Dead,
 };
 
 fn main() {

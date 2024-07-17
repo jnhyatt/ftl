@@ -28,8 +28,9 @@
 use crate::{
     nav::{Cell, NavLocation},
     projectiles::RoomTarget,
+    ship::SystemId,
     weapon::Weapon,
-    Crew, SystemId,
+    Crew,
 };
 use bevy::{ecs::entity::MapEntities, prelude::*};
 use serde::{Deserialize, Serialize};

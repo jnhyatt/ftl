@@ -1,7 +1,9 @@
 pub mod events;
 pub mod intel;
+pub mod lobby;
 pub mod nav;
 pub mod projectiles;
+pub mod ship;
 pub mod weapon;
 
 mod replicate_resource;
@@ -16,12 +18,12 @@ use intel::{
     CrewIntel, CrewNavIntel, CrewVisionIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel,
     WeaponChargeIntel,
 };
-use nav::{Cell, CrewNavStatus};
+use lobby::{PlayerReady, ReadyState};
+use nav::CrewNavStatus;
 use projectiles::{FiredFrom, NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage};
 use replicate_resource::ReplicateResExt;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, time::Duration};
-use strum_macros::EnumIter;
+use ship::{Dead, Room};
 
 pub const PROTOCOL_ID: u64 = 1;
 
@@ -55,54 +57,6 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
 }
-
-#[derive(Reflect, Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SystemId {
-    Shields,
-    Weapons,
-    Engines,
-}
-
-impl std::fmt::Display for SystemId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Shields => write!(f, "shields"),
-            Self::Weapons => write!(f, "weapons"),
-            Self::Engines => write!(f, "engines"),
-        }
-    }
-}
-
-#[derive(Resource, Serialize, Deserialize, Debug, Clone)]
-pub enum ReadyState {
-    AwaitingClients { ready_clients: HashSet<ClientId> },
-    Starting { countdown: Duration },
-}
-
-impl Default for ReadyState {
-    fn default() -> Self {
-        Self::AwaitingClients {
-            ready_clients: default(),
-        }
-    }
-}
-
-#[derive(Event, Serialize, Deserialize, Default, Clone, Copy)]
-pub struct PlayerReady;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Room {
-    pub cells: Vec<Cell>,
-}
-
-impl Room {
-    fn has_cell(&self, cell: Cell) -> bool {
-        self.cells.iter().any(|x| *x == cell)
-    }
-}
-
-#[derive(Component, Serialize, Deserialize, Debug, Default)]
-pub struct Dead;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Crew {

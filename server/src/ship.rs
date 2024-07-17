@@ -6,7 +6,8 @@ use common::{
     },
     nav::{Cell, CrewNav, CrewNavStatus, LineSection, NavMesh, PathGraph, SquareSection},
     projectiles::RoomTarget,
-    Crew, Room, SystemId,
+    ship::{Room, SystemId},
+    Crew,
 };
 use strum::IntoEnumIterator;
 

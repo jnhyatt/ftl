@@ -14,9 +14,10 @@ use common::{
         AdjustPower, MoveWeapon, PowerDir, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower,
     },
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
+    lobby::ReadyState,
     nav::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
     projectiles::{FiredFrom, RoomTarget, Traversal},
-    Dead, ReadyState, SystemId,
+    ship::{Dead, SystemId},
 };
 use is_even::IsEven;
 use leafwing_input_manager::{

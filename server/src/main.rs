@@ -18,11 +18,13 @@ use bevy_replicon_renet::{
 };
 use common::{
     intel::{SelfIntel, ShipIntel},
+    lobby::{PlayerReady, ReadyState},
     nav::{Cell, CrewNavStatus},
     projectiles::{FiredFrom, NeedsDodgeTest, WeaponDamage},
     protocol_plugin,
+    ship::Dead,
     weapon::Weapon,
-    Crew, Dead, PlayerReady, ReadyState, PROTOCOL_ID,
+    Crew, PROTOCOL_ID,
 };
 use events::{
     adjust_power, move_weapon, set_autofire, set_crew_goal, set_projectile_weapon_target,
