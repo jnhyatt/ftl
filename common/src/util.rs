@@ -1,3 +1,5 @@
+use std::ops::{Add, Div};
+
 use bevy::math::Vec2;
 
 pub trait MoveToward {
@@ -23,3 +25,17 @@ impl MoveToward for Vec2 {
 pub fn round_to_usize(x: f32) -> usize {
     x.round() as usize
 }
+
+pub trait IterAvg: Iterator {
+    fn average(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+        Self::Item: Add<Output = Self::Item> + Div<f32, Output = Self::Item>,
+    {
+        self.map(|x| (x, 1))
+            .reduce(|x, y| (x.0 + y.0, x.1 + y.1))
+            .map(|(sum, count)| sum / count as f32)
+    }
+}
+
+impl<I: Iterator> IterAvg for I {}

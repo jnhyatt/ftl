@@ -1,8 +1,11 @@
-use bevy::{prelude::Component, reflect::Reflect};
+use bevy::{math::Vec2, prelude::Component, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
-use crate::nav::{Cell, LineSection, SquareSection};
+use crate::{
+    nav::{Cell, LineSection, SquareSection},
+    util::IterAvg,
+};
 
 #[derive(Reflect, Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemId {
@@ -40,6 +43,18 @@ pub struct ShipType {
     pub rooms: &'static [Room],
     pub nav_mesh: (&'static [LineSection], &'static [SquareSection]),
     pub path_graph: &'static [(Cell, &'static [Cell])],
+    pub cell_positions: &'static [Vec2],
+}
+
+impl ShipType {
+    pub fn room_center(&self, room: usize) -> Vec2 {
+        self.rooms[room]
+            .cells
+            .iter()
+            .map(|&Cell(x)| self.cell_positions[x])
+            .average()
+            .unwrap()
+    }
 }
 
 pub const SHIPS: [ShipType; 1] = [ShipType {
@@ -72,5 +87,15 @@ pub const SHIPS: [ShipType; 1] = [ShipType {
         (Cell(5), &[Cell(3), Cell(4), Cell(7)]),
         (Cell(6), &[Cell(7)]),
         (Cell(7), &[Cell(5), Cell(6)]),
+    ],
+    cell_positions: &[
+        Vec2::new(-1.5, -0.5),
+        Vec2::new(-0.5, -0.5),
+        Vec2::new(-1.5, 0.5),
+        Vec2::new(-0.5, 0.5),
+        Vec2::new(0.5, -0.5),
+        Vec2::new(0.5, 0.5),
+        Vec2::new(1.5, -0.5),
+        Vec2::new(1.5, 0.5),
     ],
 }];

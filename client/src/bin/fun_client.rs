@@ -17,9 +17,8 @@ use common::{
     lobby::ReadyState,
     nav::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
     projectiles::{FiredFrom, RoomTarget, Traversal},
-    ship::{Dead, SystemId},
+    ship::{Dead, SystemId, SHIPS},
 };
-use is_even::IsEven;
 use leafwing_input_manager::{
     action_state::ActionState, input_map::InputMap, plugin::InputManagerPlugin, Actionlike,
     InputManagerBundle,
@@ -76,9 +75,11 @@ enum CellTex {
     TopRight,
     Top,
     TopLeft,
+    Left,
     BottomLeft,
     Bottom,
     BottomRight,
+    Right,
 }
 
 #[derive(Component)]
@@ -170,9 +171,11 @@ fn cell_tex(assets: &AssetServer, x: CellTex) -> Handle<Image> {
         CellTex::TopRight => "cell-top-right.png",
         CellTex::Top => "cell-top.png",
         CellTex::TopLeft => "cell-top-left.png",
+        CellTex::Left => "cell-left.png",
         CellTex::BottomLeft => "cell-bottom-left.png",
         CellTex::Bottom => "cell-bottom.png",
         CellTex::BottomRight => "cell-bottom-right.png",
+        CellTex::Right => "cell-right.png",
     })
 }
 
@@ -224,7 +227,7 @@ fn handle_cell_click(
 
 fn add_ship_graphic(
     self_intel: Query<&SelfIntel>,
-    ships: Query<Entity, (With<ShipIntel>, Without<Sprite>)>,
+    ships: Query<(Entity, &ShipIntel), Without<Sprite>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -232,23 +235,7 @@ fn add_ship_graphic(
         return;
     };
     let my_ship = self_intel.ship;
-
-    let cells = [
-        (CellTex::BottomLeft, IVec2::new(0, 0), RoomGraphic(0)),
-        (CellTex::BottomRight, IVec2::new(1, 0), RoomGraphic(0)),
-        (CellTex::TopLeft, IVec2::new(0, 1), RoomGraphic(0)),
-        (CellTex::TopRight, IVec2::new(1, 1), RoomGraphic(0)),
-        (CellTex::Bottom, IVec2::new(2, 0), RoomGraphic(1)),
-        (CellTex::Top, IVec2::new(2, 1), RoomGraphic(1)),
-        (CellTex::Bottom, IVec2::new(3, 0), RoomGraphic(2)),
-        (CellTex::Top, IVec2::new(3, 1), RoomGraphic(2)),
-    ];
-    let offset = cells.iter().fold(IVec2::ZERO, |sum, (_, x, _)| sum + *x);
-    let bump_x = if offset.x.is_even() { 0.0 } else { 0.5 };
-    let bump_y = if offset.y.is_even() { 0.0 } else { 0.5 };
-    let pixel_offset = Vec2::new(bump_x, bump_y);
-    let offset = offset.as_vec2() / cells.len() as f32;
-    for ship in &ships {
+    for (ship, intel) in &ships {
         let transform = if ship == my_ship {
             Transform::from_xyz(-200.0, 0.0, -2.0)
         } else {
@@ -312,20 +299,38 @@ fn add_ship_graphic(
                     .build(),
             ));
         }
-        for (tex, pos, room) in cells.iter().cloned() {
-            let pos = (pos.as_vec2() - offset) * 35.0 + pixel_offset;
-            let cell = commands
-                .spawn((
-                    On::<Pointer<Down>>::run(handle_cell_click),
-                    room,
-                    SpriteBundle {
-                        texture: cell_tex(&*assets, tex),
-                        transform: Transform::from_translation(pos.extend(1.0)),
-                        ..default()
-                    },
-                ))
-                .id();
-            commands.entity(ship).add_child(cell);
+
+        for (room_index, room) in SHIPS[intel.basic.ship_type].rooms.iter().enumerate() {
+            let room_center = SHIPS[intel.basic.ship_type].room_center(room_index);
+            for &Cell(cell) in room.cells {
+                let pos = SHIPS[intel.basic.ship_type].cell_positions[cell];
+                let tex = match (
+                    pos.x.total_cmp(&room_center.x),
+                    pos.y.total_cmp(&room_center.y),
+                ) {
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Less) => CellTex::BottomLeft,
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Equal) => CellTex::Left,
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Greater) => CellTex::TopLeft,
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Less) => CellTex::Bottom,
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => todo!(),
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Greater) => CellTex::Top,
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Less) => CellTex::BottomRight,
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Equal) => CellTex::Right,
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Greater) => CellTex::TopRight,
+                };
+                let cell = commands
+                    .spawn((
+                        On::<Pointer<Down>>::run(handle_cell_click),
+                        RoomGraphic(room_index),
+                        SpriteBundle {
+                            texture: cell_tex(&*assets, tex),
+                            transform: Transform::from_translation((pos * 35.0).extend(1.0)),
+                            ..default()
+                        },
+                    ))
+                    .id();
+                commands.entity(ship).add_child(cell);
+            }
         }
     }
 }
