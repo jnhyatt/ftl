@@ -2,7 +2,7 @@ use bevy::{prelude::Component, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
-use crate::nav::Cell;
+use crate::nav::{Cell, LineSection, SquareSection};
 
 #[derive(Reflect, Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemId {
@@ -21,9 +21,9 @@ impl std::fmt::Display for SystemId {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Debug)]
 pub struct Room {
-    pub cells: Vec<Cell>,
+    pub cells: &'static [Cell],
 }
 
 impl Room {
@@ -34,3 +34,43 @@ impl Room {
 
 #[derive(Component, Serialize, Deserialize, Debug, Default)]
 pub struct Dead;
+
+#[derive(Component, Debug)]
+pub struct ShipType {
+    pub rooms: &'static [Room],
+    pub nav_mesh: (&'static [LineSection], &'static [SquareSection]),
+    pub path_graph: &'static [(Cell, &'static [Cell])],
+}
+
+pub const SHIPS: [ShipType; 1] = [ShipType {
+    rooms: &[
+        Room {
+            cells: &[Cell(0), Cell(1), Cell(2), Cell(3)],
+        },
+        Room {
+            cells: &[Cell(4), Cell(5)],
+        },
+        Room {
+            cells: &[Cell(6), Cell(7)],
+        },
+    ],
+    nav_mesh: (
+        &[
+            LineSection([Cell(4), Cell(5)]),
+            LineSection([Cell(6), Cell(7)]),
+            LineSection([Cell(3), Cell(5)]),
+            LineSection([Cell(5), Cell(7)]),
+        ],
+        &[SquareSection([[Cell(0), Cell(1)], [Cell(2), Cell(3)]])],
+    ),
+    path_graph: &[
+        (Cell(0), &[Cell(1), Cell(2), Cell(3)]),
+        (Cell(1), &[Cell(0), Cell(2), Cell(3)]),
+        (Cell(2), &[Cell(0), Cell(1), Cell(3)]),
+        (Cell(3), &[Cell(0), Cell(1), Cell(2), Cell(5)]),
+        (Cell(4), &[Cell(5)]),
+        (Cell(5), &[Cell(3), Cell(4), Cell(7)]),
+        (Cell(6), &[Cell(7)]),
+        (Cell(7), &[Cell(5), Cell(6)]),
+    ],
+}];

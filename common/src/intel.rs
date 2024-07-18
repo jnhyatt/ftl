@@ -58,13 +58,15 @@ impl MapEntities for ShipIntel {
 /// Holds all the information about a ship that's visible even without functioning sensors.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BasicIntel {
+    pub ship_type: usize,
     /// The ship's maximum hull integrity. This should probably move to a `ShipType` class similar
     /// to how weapons are set up. Also crew race.
     pub max_hull: usize,
     /// Current hull integrity.
     pub hull: usize,
-    /// Represents the number of rooms on a ship and what system (if any) is present in each.
-    pub rooms: Vec<Option<SystemId>>,
+    /// Location of each ship system, if present. If no entry for a given [`SystemId`] exists, it
+    /// means the system is not installed on the ship.
+    pub system_locations: HashMap<SystemId, usize>,
     /// Basic shield status if the system is installed.
     pub shields: Option<ShieldIntel>,
     /// Damage intel for engines if the system is installed.
@@ -89,6 +91,7 @@ pub struct InteriorIntel {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RoomIntel {
     pub crew: Vec<CrewIntel>,
+    pub oxygen: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

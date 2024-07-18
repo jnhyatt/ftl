@@ -362,11 +362,8 @@ mod tests {
     #[test]
     fn line_coords_of() {
         let line = LineSection([Cell(3), Cell(7)]);
-        // SAFETY: cells 3 and 7 are in `line`
-        unsafe {
-            assert_eq!(line.coords_of(Cell(3)), 0.0);
-            assert_eq!(line.coords_of(Cell(7)), 1.0);
-        }
+        assert_eq!(line.coords_of(Cell(3)), 0.0);
+        assert_eq!(line.coords_of(Cell(7)), 1.0);
     }
 
     #[test]

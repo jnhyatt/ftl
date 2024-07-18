@@ -34,7 +34,7 @@ use projectiles::{
     projectile_collide_hull, projectile_shield_interact, projectile_test_dodge, projectile_timeout,
     projectile_traversal, Delayed, ProjectileBundle, ShieldPierce, TraversalSpeed,
 };
-use ship::Ship;
+use ship::ShipState;
 use ship_system::ShipSystem;
 use std::{
     collections::HashMap,
@@ -178,7 +178,10 @@ fn despawn_all<C: Component>(world: &mut World) {
     }
 }
 
-pub fn update_ships(mut ships: Query<(Entity, &mut Ship), Without<Dead>>, mut commands: Commands) {
+pub fn update_ships(
+    mut ships: Query<(Entity, &mut ShipState), Without<Dead>>,
+    mut commands: Commands,
+) {
     for (e, mut ship) in &mut ships {
         if let Some((shields, _)) = &mut ship.systems.shields {
             shields.charge_shield();
@@ -204,7 +207,7 @@ pub fn update_ships(mut ships: Query<(Entity, &mut Ship), Without<Dead>>, mut co
 }
 
 fn fire_projectiles(
-    ships: Query<&Ship>,
+    ships: Query<&ShipState>,
     mut pending: Query<(Entity, &mut Delayed)>,
     mut commands: Commands,
     time: Res<Time>,
@@ -273,7 +276,7 @@ fn update_intel_visibility(
 }
 
 fn update_intel(
-    mut ships: Query<(&Ship, &mut ShipIntel)>,
+    mut ships: Query<(&ShipState, &mut ShipIntel)>,
     mut self_intel: Query<&mut SelfIntel>,
     mut commands: Commands,
 ) {
@@ -294,7 +297,7 @@ fn update_intel(
     }
 }
 
-fn update_dead(ships: Query<(Entity, &Ship)>, mut commands: Commands) {
+fn update_dead(ships: Query<(Entity, &ShipState)>, mut commands: Commands) {
     for (e, ship) in &ships {
         if ship.damage == ship.max_hull {
             commands.entity(e).insert(Dead);
@@ -339,7 +342,7 @@ fn handle_connections(mut server_events: EventReader<ServerEvent>, mut commands:
 fn reset_gamestate(world: &mut World) {
     world.init_resource::<ReadyState>();
     world.init_resource::<ClientShips>();
-    despawn_all::<Ship>(world);
+    despawn_all::<ShipState>(world);
     despawn_all::<Replicated>(world);
 
     let clients = world
@@ -352,7 +355,7 @@ fn reset_gamestate(world: &mut World) {
 }
 
 fn spawn_player(world: &mut World, client_id: ClientId) {
-    let mut ship = Ship::new();
+    let mut ship = ShipState::new();
     for _ in 0..8 {
         ship.reactor.upgrade();
     }

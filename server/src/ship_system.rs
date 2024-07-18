@@ -18,7 +18,7 @@ impl ShipSystems {
         SystemId::iter().find(|&system| self.system_room(system) == Some(room))
     }
 
-    fn system_room(&self, system: SystemId) -> Option<usize> {
+    pub fn system_room(&self, system: SystemId) -> Option<usize> {
         match system {
             SystemId::Shields => self.shields.as_ref().map(|(_, x)| *x),
             SystemId::Engines => self.engines.as_ref().map(|(_, x)| *x),

@@ -4,9 +4,9 @@ use common::{
         BasicIntel, CrewVisionIntel, InteriorIntel, RoomIntel, SelfIntel, ShieldIntel,
         SystemsIntel, WeaponChargeIntel, WeaponIntel, WeaponsIntel,
     },
-    nav::{Cell, CrewNav, CrewNavStatus, LineSection, NavMesh, PathGraph, SquareSection},
+    nav::{Cell, CrewNav, CrewNavStatus, NavMesh, PathGraph},
     projectiles::RoomTarget,
-    ship::{Room, SystemId},
+    ship::{SystemId, SHIPS},
     Crew,
 };
 use strum::IntoEnumIterator;
@@ -18,63 +18,40 @@ use crate::{
 };
 
 #[derive(Component, Clone, Debug)]
-pub struct Ship {
+pub struct ShipState {
+    pub ship_type: usize,
     pub reactor: Reactor,
     pub systems: ShipSystems,
     pub max_hull: usize,
     pub damage: usize,
-    pub rooms: Vec<Room>,
     pub crew: Vec<Crew>,
-    pub nav_mesh: NavMesh,
-    pub path_graph: PathGraph,
     pub missiles: usize,
+    nav_mesh: NavMesh,
+    path_graph: PathGraph,
 }
 
-impl Ship {
+impl ShipState {
     pub fn new() -> Self {
-        let rooms = vec![
-            Room {
-                cells: vec![Cell(0), Cell(1), Cell(2), Cell(3)],
-            },
-            Room {
-                cells: vec![Cell(4), Cell(5)],
-            },
-            Room {
-                cells: vec![Cell(6), Cell(7)],
-            },
-        ];
-        let nav_mesh = NavMesh {
-            lines: vec![
-                LineSection([Cell(4), Cell(5)]),
-                LineSection([Cell(6), Cell(7)]),
-                LineSection([Cell(3), Cell(5)]),
-                LineSection([Cell(5), Cell(7)]),
-            ],
-            squares: vec![SquareSection([[Cell(0), Cell(1)], [Cell(2), Cell(3)]])],
-        };
-        let path_graph = PathGraph {
-            edges: [
-                (Cell(0), [Cell(1), Cell(2), Cell(3)].into()),
-                (Cell(1), [Cell(0), Cell(2), Cell(3)].into()),
-                (Cell(2), [Cell(0), Cell(1), Cell(3)].into()),
-                (Cell(3), [Cell(0), Cell(1), Cell(2), Cell(5)].into()),
-                (Cell(4), [Cell(5)].into()),
-                (Cell(5), [Cell(3), Cell(4), Cell(7)].into()),
-                (Cell(6), [Cell(7)].into()),
-                (Cell(7), [Cell(5), Cell(6)].into()),
-            ]
-            .into(),
-        };
+        let (nav_lines, nav_squares) = SHIPS[0].nav_mesh;
+        let paths = SHIPS[0].path_graph;
         Self {
+            ship_type: 0,
             reactor: Reactor::new(0),
             systems: default(),
             max_hull: 30,
             damage: 0,
-            rooms,
             crew: default(),
-            nav_mesh,
-            path_graph,
             missiles: 10,
+            nav_mesh: NavMesh {
+                lines: nav_lines.into(),
+                squares: nav_squares.into(),
+            },
+            path_graph: PathGraph {
+                edges: paths
+                    .iter()
+                    .map(|&(key, values)| (key, values.iter().copied().collect()))
+                    .collect(),
+            },
         }
     }
 
@@ -96,10 +73,11 @@ impl Ship {
 
     pub fn basic_intel(&self) -> BasicIntel {
         BasicIntel {
+            ship_type: self.ship_type,
             max_hull: self.max_hull,
             hull: self.max_hull - self.damage,
-            rooms: (0..self.rooms.len())
-                .map(|room| self.systems.system_in_room(room))
+            system_locations: SystemId::iter()
+                .filter_map(|system| self.systems.system_room(system).map(|room| (system, room)))
                 .collect(),
             shields: self
                 .systems
@@ -140,7 +118,7 @@ impl Ship {
 
     pub fn interior_intel(&self) -> InteriorIntel {
         InteriorIntel {
-            rooms: self
+            rooms: SHIPS[self.ship_type]
                 .rooms
                 .iter()
                 .map(|room| RoomIntel {
@@ -150,6 +128,7 @@ impl Ship {
                         .filter(|x| x.is_in_room(room))
                         .map(|x| x.intel())
                         .collect(),
+                    oxygen: 1.0,
                 })
                 .collect(),
             cells: default(),
@@ -186,7 +165,7 @@ impl Ship {
     }
 
     pub fn update_repair_status(&mut self) {
-        for (i, room) in self.rooms.iter().enumerate() {
+        for (i, room) in SHIPS[self.ship_type].rooms.iter().enumerate() {
             if let Some(system) = self.systems.system_in_room(i) {
                 if !self.crew.iter().any(|x| x.is_in_room(room)) {
                     let system = self.systems.system_mut(system).unwrap();
@@ -200,7 +179,7 @@ impl Ship {
         for crew in &mut self.crew {
             crew.nav_status.step(&self.nav_mesh);
             if let CrewNavStatus::At(cell) = &crew.nav_status {
-                let room = self
+                let room = SHIPS[self.ship_type]
                     .rooms
                     .iter()
                     .position(|x| x.cells.iter().any(|x| x == cell))
@@ -320,7 +299,7 @@ impl Ship {
     }
 
     pub fn set_crew_goal(&mut self, crew_index: usize, room_index: usize) {
-        let Some(room) = self.rooms.get(room_index) else {
+        let Some(room) = SHIPS[self.ship_type].rooms.get(room_index) else {
             eprintln!("Can't set crew goal, room {room_index} doesn't exist");
             return;
         };
@@ -339,7 +318,7 @@ impl Ship {
             return;
         };
         let crew = &mut crew.nav_status;
-        let occupied_room = self
+        let occupied_room = SHIPS[self.ship_type]
             .rooms
             .iter()
             .position(|x| x.cells.iter().any(|x| *x == crew.occupied_cell()))

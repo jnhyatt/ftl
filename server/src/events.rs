@@ -8,12 +8,12 @@ use common::{
     ship::Dead,
 };
 
-use crate::{ship::Ship, ClientShips};
+use crate::{ship::ShipState, ClientShips};
 
 pub fn adjust_power(
     mut events: EventReader<FromClient<AdjustPower>>,
     client_ships: Res<ClientShips>,
-    mut ships: Query<&mut Ship, Without<Dead>>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
     for &FromClient {
         client_id,
@@ -38,7 +38,7 @@ pub fn adjust_power(
 pub fn weapon_power(
     mut events: EventReader<FromClient<WeaponPower>>,
     client_ships: Res<ClientShips>,
-    mut ships: Query<&mut Ship, Without<Dead>>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
     for &FromClient {
         client_id,
@@ -66,7 +66,7 @@ pub fn weapon_power(
 pub fn set_projectile_weapon_target(
     mut events: EventReader<FromClient<SetProjectileWeaponTarget>>,
     client_ships: Res<ClientShips>,
-    mut ships: Query<&mut Ship, Without<Dead>>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
     for &FromClient {
         client_id,
@@ -92,7 +92,7 @@ pub fn set_projectile_weapon_target(
 pub fn move_weapon(
     mut events: EventReader<FromClient<MoveWeapon>>,
     client_ships: Res<ClientShips>,
-    mut ships: Query<&mut Ship, Without<Dead>>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
     for &FromClient {
         client_id,
@@ -117,7 +117,7 @@ pub fn move_weapon(
 pub fn set_crew_goal(
     mut events: EventReader<FromClient<SetCrewGoal>>,
     client_ships: Res<ClientShips>,
-    mut ships: Query<&mut Ship, Without<Dead>>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
     for &FromClient {
         client_id,
@@ -142,7 +142,7 @@ pub fn set_crew_goal(
 pub fn set_autofire(
     mut events: EventReader<FromClient<SetAutofire>>,
     client_ships: Res<ClientShips>,
-    mut ships: Query<&mut Ship, Without<Dead>>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
     for &FromClient {
         client_id,

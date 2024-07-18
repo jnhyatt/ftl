@@ -12,7 +12,7 @@ use common::{
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
     lobby::ReadyState,
     projectiles::{NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage},
-    ship::Dead,
+    ship::{Dead, SHIPS},
 };
 
 fn main() {
@@ -114,8 +114,7 @@ fn weapons_panel(
             return String::from("No target");
         };
         let name = ship_names.get(target.ship).unwrap();
-        let (_, target_intel) = ships.get(target.ship).unwrap();
-        format!("{name} {:?}", target_intel.basic.rooms[target.room])
+        format!("{name} {:?}", target.room)
     };
 
     let Ok((_, intel)) = ships.get(self_intel.ship) else {
@@ -149,7 +148,7 @@ fn weapons_panel(
                                     weapon.weapon.can_target_self || *e != self_intel.ship
                                 })
                                 .flat_map(|(ship, intel)| {
-                                    (0..intel.basic.rooms.len())
+                                    (0..SHIPS[intel.basic.ship_type].rooms.len())
                                         .map(move |room| RoomTarget { ship, room })
                                 });
                             for target in targets {

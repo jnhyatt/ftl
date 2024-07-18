@@ -5,11 +5,12 @@ use bevy_replicon::core::Replicated;
 use common::{
     compute_dodge_chance,
     projectiles::{FiredFrom, NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage},
+    ship::SHIPS,
     weapon::WeaponType,
 };
 use rand::{thread_rng, Rng};
 
-use crate::{ship::Ship, ship_system::ShipSystem};
+use crate::{ship::ShipState, ship_system::ShipSystem};
 
 pub fn projectile_traversal(mut projectiles: Query<(&TraversalSpeed, &mut Traversal)>) {
     for (&TraversalSpeed(speed), mut progress) in &mut projectiles {
@@ -26,7 +27,7 @@ pub fn projectile_traversal(mut projectiles: Query<(&TraversalSpeed, &mut Traver
 /// unit power in the target's engines subsystem.
 pub fn projectile_test_dodge(
     projectiles: Query<(Entity, &Traversal, &RoomTarget), With<NeedsDodgeTest>>,
-    ships: Query<&Ship>,
+    ships: Query<&ShipState>,
     mut commands: Commands,
 ) {
     for (projectile, &progress, target) in &projectiles {
@@ -58,7 +59,7 @@ pub fn projectile_test_dodge(
 /// need to decrement the target's shield and despawn the projectile.
 pub fn projectile_shield_interact(
     projectiles: Query<(Entity, &Traversal, &ShieldPierce, &RoomTarget)>,
-    mut ships: Query<&mut Ship>,
+    mut ships: Query<&mut ShipState>,
     mut commands: Commands,
 ) {
     for (projectile, &progress, &shield_pierce, target) in &projectiles {
@@ -83,7 +84,7 @@ pub fn projectile_shield_interact(
 /// and despawn the projectile.
 pub fn projectile_collide_hull(
     projectiles: Query<(Entity, &Traversal, &RoomTarget, &WeaponDamage)>,
-    mut ships: Query<&mut Ship>,
+    mut ships: Query<&mut ShipState>,
     mut commands: Commands,
 ) {
     for (projectile, &progress, target, &damage) in &projectiles {
@@ -97,7 +98,7 @@ pub fn projectile_collide_hull(
         commands.entity(projectile).despawn();
         for crew in &mut ship.crew {
             let crew_cell = crew.nav_status.current_cell();
-            let crew_room = ship
+            let crew_room = SHIPS[ship.ship_type]
                 .rooms
                 .iter()
                 .position(|x| x.cells.iter().any(|x| *x == crew_cell))
