@@ -22,7 +22,15 @@ impl Shields {
             self.layers = target;
         }
         if self.layers < target {
-            self.charge += 0.01;
+            // Rate in layers per second
+            let charge_rate = match self.layers {
+                0 | 1 => 0.5,
+                2 => 0.58,
+                3 => 0.67,
+                _ => 0.75,
+            };
+            // Multiply by fixed update step to get frame charge
+            self.charge += charge_rate / 64.0;
         } else {
             self.charge = 0.0;
         }
