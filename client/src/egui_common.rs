@@ -70,7 +70,7 @@ pub fn power_panel(
         });
 
         if let Some(shields) = systems.get(&SystemId::Shields) {
-            ui.label("Shields");
+            ui.label("[A] Shields");
             if let Some(request) = power_bar(
                 ui,
                 shields.current_power,
@@ -82,7 +82,7 @@ pub fn power_panel(
             }
         }
         if let Some(engines) = systems.get(&SystemId::Engines) {
-            ui.label("Engines");
+            ui.label("[S] Engines");
             if let Some(request) = power_bar(
                 ui,
                 engines.current_power,
@@ -94,7 +94,7 @@ pub fn power_panel(
             }
         }
         if let Some(weapons) = systems.get(&SystemId::Weapons) {
-            ui.label("Weapons");
+            ui.label("[W] Weapons");
             if let Some(request) = power_bar(
                 ui,
                 weapons.current_power,
@@ -261,4 +261,61 @@ pub fn weapon_power_ui(
 pub fn weapon_charge_ui(ui: &mut Ui, charge: f32, weapon: &Weapon) {
     let charge = charge / weapon.charge_time;
     ui.add(egui::ProgressBar::new(charge).desired_width(100.0));
+}
+
+pub fn enemy_panels(
+    mut ui: EguiContexts,
+    self_intel: Query<&SelfIntel>,
+    ships: Query<(Entity, &ShipIntel, Has<Dead>)>,
+) {
+    let Ok(self_intel) = self_intel.get_single() else {
+        return;
+    };
+    let enemies = ships.iter().filter(|(e, _, _)| *e != self_intel.ship);
+    for (_, intel, dead) in enemies {
+        egui::Window::new(format!("Target")).show(ui.ctx_mut(), |ui| {
+            if dead {
+                ui.label("DESTROYED");
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label("Hull Integrity");
+                    let max = intel.basic.max_hull;
+                    let current = intel.basic.hull;
+                    ui.add(
+                        egui::ProgressBar::new(current as f32 / max as f32).desired_width(400.0),
+                    );
+                    ui.label(format!("{current}/{max}"));
+                });
+                if let Some(shields) = &intel.basic.shields {
+                    ui.label(format!("Shields: {:?}", shields.damage));
+                    ui.horizontal(|ui| {
+                        for _ in 0..shields.layers {
+                            let _ = ui.selectable_label(true, "O");
+                        }
+                        for _ in shields.layers..shields.max_layers {
+                            let _ = ui.selectable_label(false, "O");
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(egui::ProgressBar::new(shields.charge));
+                    });
+                }
+                if let Some(engines) = &intel.basic.engines {
+                    ui.label(format!("Engines: {:?}", engines));
+                }
+                if let Some(weapons) = &intel.basic.weapons {
+                    ui.label(format!("Weapons: {:?}", weapons.damage));
+                    for weapon in &weapons.weapons {
+                        ui.horizontal(|ui| {
+                            let mut powered = weapon.powered;
+                            ui.add_enabled_ui(false, |ui| {
+                                ui.checkbox(&mut powered, "");
+                            });
+                            ui.label(weapon.weapon.name);
+                        });
+                    }
+                }
+            }
+        });
+    }
 }

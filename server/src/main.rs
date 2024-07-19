@@ -359,9 +359,10 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     for _ in 0..8 {
         ship.reactor.upgrade();
     }
-    ship.install_shields(0);
+    // TODO Move systems to specific rooms
+    ship.install_shields(2);
     ship.install_engines(1);
-    ship.install_weapons(2);
+    ship.install_weapons(3);
 
     // TODO Add a dedicated API to bring on crew
     ship.crew.push(Crew {
@@ -405,7 +406,6 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     let ship_e = world
         .spawn((
             Replicated,
-            Name::new(format!("Potato Bug")),
             ShipIntel {
                 basic: ship.basic_intel(),
                 crew_vision,

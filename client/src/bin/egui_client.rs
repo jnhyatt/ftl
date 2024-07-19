@@ -3,8 +3,8 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use client::{
     client_plugin,
     egui_common::{
-        power_panel, ready_panel, shields_panel, status_panel, weapon_charge_ui, weapon_power_ui,
-        weapon_rearrange_ui,
+        enemy_panels, power_panel, ready_panel, shields_panel, status_panel, weapon_charge_ui,
+        weapon_power_ui, weapon_rearrange_ui,
     },
 };
 use common::{
@@ -35,71 +35,10 @@ fn main() {
         .run();
 }
 
-fn enemy_panels(
-    mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
-    ships: Query<(Entity, &Name, &ShipIntel, Has<Dead>)>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
-    let enemies = ships.iter().filter(|(e, _, _, _)| *e != self_intel.ship);
-    for (_, name, intel, dead) in enemies {
-        egui::Window::new(format!("Target {name:?}")).show(ui.ctx_mut(), |ui| {
-            if dead {
-                ui.label("DESTROYED");
-            } else {
-                ui.horizontal(|ui| {
-                    ui.label("Hull Integrity");
-                    let max = intel.basic.max_hull;
-                    let current = intel.basic.hull;
-                    ui.add(
-                        egui::ProgressBar::new(current as f32 / max as f32).desired_width(400.0),
-                    );
-                    ui.label(format!("{current}/{max}"));
-                });
-                if let Some(shields) = &intel.basic.shields {
-                    ui.label("Shields");
-                    ui.label(format!("{:?}", shields.damage));
-                    ui.horizontal(|ui| {
-                        for _ in 0..shields.layers {
-                            let _ = ui.selectable_label(true, "O");
-                        }
-                        for _ in shields.layers..shields.max_layers {
-                            let _ = ui.selectable_label(false, "O");
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.add(egui::ProgressBar::new(shields.charge));
-                    });
-                }
-                if let Some(engines) = &intel.basic.engines {
-                    ui.label("Engines");
-                    ui.label(format!("{:?}", engines));
-                }
-                if let Some(weapons) = &intel.basic.weapons {
-                    ui.label("Weapons");
-                    ui.label(format!("{:?}", weapons.damage));
-                    for weapon in &weapons.weapons {
-                        ui.horizontal(|ui| {
-                            let mut powered = weapon.powered;
-                            ui.add_enabled_ui(false, |ui| {
-                                ui.checkbox(&mut powered, "");
-                            });
-                            ui.label(weapon.weapon.name);
-                        });
-                    }
-                }
-            }
-        });
-    }
-}
-
 fn weapons_panel(
     mut ui: EguiContexts,
     self_intel: Query<&SelfIntel>,
     ships: Query<(Entity, &ShipIntel), Without<Dead>>,
-    ship_names: Query<&Name>,
     charge_intel: Query<&WeaponChargeIntel>,
     mut weapon_power: EventWriter<WeaponPower>,
     mut weapon_targeting: EventWriter<SetProjectileWeaponTarget>,
@@ -109,14 +48,6 @@ fn weapons_panel(
         // No connection to server
         return;
     };
-    let room_name = |e: Option<RoomTarget>| {
-        let Some(target) = e else {
-            return String::from("No target");
-        };
-        let name = ship_names.get(target.ship).unwrap();
-        format!("{name} {:?}", target.room)
-    };
-
     let Ok((_, intel)) = ships.get(self_intel.ship) else {
         // Ship destroyed
         return;
@@ -139,9 +70,9 @@ fn weapons_panel(
                     let mut new_target: Option<Option<RoomTarget>> = None;
                     let current_target = self_intel.weapon_targets[index];
                     egui::ComboBox::new(index, "Target")
-                        .selected_text(room_name(current_target))
+                        .selected_text(format!("{:?}", current_target))
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut new_target, Some(None), room_name(None));
+                            ui.selectable_value(&mut new_target, Some(None), "No target");
                             let targets = ships
                                 .iter()
                                 .filter(|(e, _)| {
@@ -155,7 +86,7 @@ fn weapons_panel(
                                 ui.selectable_value(
                                     &mut new_target,
                                     Some(Some(target)),
-                                    room_name(Some(target)),
+                                    format!("{:?}", target),
                                 );
                             }
                         });

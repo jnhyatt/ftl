@@ -4,14 +4,15 @@ use bevy_mod_picking::prelude::*;
 use client::{
     client_plugin,
     egui_common::{
-        power_panel, ready_panel, shields_panel, status_panel, weapon_charge_ui, weapon_power_ui,
-        weapon_rearrange_ui,
+        enemy_panels, power_panel, ready_panel, shields_panel, status_panel, weapon_charge_ui,
+        weapon_power_ui, weapon_rearrange_ui,
     },
     select::{selection_plugin, SelectEvent, Selectable, Selected, SelectionEnabled},
 };
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower,
+        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetProjectileWeaponTarget,
+        WeaponPower,
     },
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
     lobby::ReadyState,
@@ -59,6 +60,7 @@ fn main() {
                 status_panel,
                 weapons_panel,
                 shields_panel,
+                enemy_panels,
                 ready_panel.run_if(resource_exists::<ReadyState>),
                 add_ship_graphic,
                 crew_panel,
@@ -127,28 +129,20 @@ fn sync_crew_count(
 
 fn sync_crew_positions(
     self_intel: Query<&SelfIntel>,
+    ships: Query<&ShipIntel>,
     mut crew: Query<(&mut Transform, &Parent, &CrewGraphic)>,
 ) {
     let Ok(self_intel) = self_intel.get_single() else {
         return;
     };
+    let ship = &SHIPS[ships.get(self_intel.ship).unwrap().basic.ship_type];
     let mut crew_graphics = crew
         .iter_mut()
         .filter(|&(_, parent, _)| **parent == self_intel.ship)
         .collect::<Vec<_>>();
     crew_graphics.sort_unstable_by_key(|(_, _, x)| x.0);
     let crew = self_intel.crew.iter();
-    let cell_pos = |cell: &Cell| match cell.0 {
-        0 => Vec2::new(-52.5, -17.5),
-        1 => Vec2::new(-17.5, -17.5),
-        2 => Vec2::new(-52.5, 17.5),
-        3 => Vec2::new(-17.5, 17.5),
-        4 => Vec2::new(17.5, -17.5),
-        5 => Vec2::new(17.5, 17.5),
-        6 => Vec2::new(52.5, -17.5),
-        7 => Vec2::new(52.5, 17.5),
-        _ => unreachable!(),
-    };
+    let cell_pos = |&Cell(cell)| ship.cell_positions[cell] * 35.0;
     for (crew, (mut graphic, _, _)) in crew.zip(crew_graphics) {
         let crew_z = graphic.translation.z;
         let crew_xy = match &crew.nav_status {
@@ -247,11 +241,12 @@ fn add_ship_graphic(
             transform,
             ..default()
         });
+
         commands.entity(ship).with_children(|ship| {
             ship.spawn((
                 Pickable::IGNORE,
                 SpriteBundle {
-                    transform: Transform::from_translation(delete_me(0).extend(1.5))
+                    transform: Transform::from_translation(room_center(intel, 2).extend(1.5))
                         .with_rotation(transform.rotation.inverse()),
                     texture: assets.load("shields.png"),
                     ..default()
@@ -260,7 +255,7 @@ fn add_ship_graphic(
             ship.spawn((
                 Pickable::IGNORE,
                 SpriteBundle {
-                    transform: Transform::from_translation(delete_me(1).extend(1.5))
+                    transform: Transform::from_translation(room_center(intel, 1).extend(1.5))
                         .with_rotation(transform.rotation.inverse()),
                     texture: assets.load("engines.png"),
                     ..default()
@@ -269,7 +264,7 @@ fn add_ship_graphic(
             ship.spawn((
                 Pickable::IGNORE,
                 SpriteBundle {
-                    transform: Transform::from_translation(delete_me(2).extend(1.5))
+                    transform: Transform::from_translation(room_center(intel, 3).extend(1.5))
                         .with_rotation(transform.rotation.inverse()),
                     texture: assets.load("weapons.png"),
                     ..default()
@@ -281,6 +276,7 @@ fn add_ship_graphic(
             use SystemId::*;
             commands.entity(ship).insert(InputManagerBundle::with_map(
                 InputMap::default()
+                    .insert(Controls::Autofire, KeyV)
                     .insert(Controls::power_system(Shields), KeyA)
                     .insert(Controls::power_system(Shields), KeyA)
                     .insert(Controls::power_system(Engines), KeyS)
@@ -312,7 +308,7 @@ fn add_ship_graphic(
                     (std::cmp::Ordering::Less, std::cmp::Ordering::Equal) => CellTex::Left,
                     (std::cmp::Ordering::Less, std::cmp::Ordering::Greater) => CellTex::TopLeft,
                     (std::cmp::Ordering::Equal, std::cmp::Ordering::Less) => CellTex::Bottom,
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => todo!(),
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => unreachable!(),
                     (std::cmp::Ordering::Equal, std::cmp::Ordering::Greater) => CellTex::Top,
                     (std::cmp::Ordering::Greater, std::cmp::Ordering::Less) => CellTex::BottomRight,
                     (std::cmp::Ordering::Greater, std::cmp::Ordering::Equal) => CellTex::Right,
@@ -324,7 +320,11 @@ fn add_ship_graphic(
                         RoomGraphic(room_index),
                         SpriteBundle {
                             texture: cell_tex(&*assets, tex),
-                            transform: Transform::from_translation((pos * 35.0).extend(1.0)),
+                            transform: Transform::from_translation(
+                                // Add 0.1 to x and y here to make sure we don't get texels that
+                                // can't decide which pixel they belong to
+                                (pos * 35.0 + Vec2::splat(0.1)).extend(1.0),
+                            ),
                             ..default()
                         },
                     ))
@@ -408,6 +408,7 @@ fn weapons_panel(
     mut targeting: EventWriter<SetProjectileWeaponTarget>,
     mut weapon_power: EventWriter<WeaponPower>,
     mut weapon_ordering: EventWriter<MoveWeapon>,
+    mut set_autofire: EventWriter<SetAutofire>,
     mut commands: Commands,
 ) {
     let Ok(self_intel) = self_intel.get_single() else {
@@ -435,10 +436,14 @@ fn weapons_panel(
                     &weapon.weapon,
                     &mut weapon_power,
                 );
-                ui.label(weapon.weapon.name);
+                ui.label(format!("[{}] {}", weapon_index + 1, weapon.weapon.name));
                 weapon_charge_ui(ui, weapon_charges.levels[weapon_index], &weapon.weapon);
-
-                if ui.button("Target").clicked() {
+                let target_text = if let Some(target) = &self_intel.weapon_targets[weapon_index] {
+                    format!("Target: {:?}", target)
+                } else {
+                    "Target".into()
+                };
+                if ui.button(target_text).clicked() {
                     // Disable selection, target weapon `index`
                     targeting.send(SetProjectileWeaponTarget {
                         weapon_index,
@@ -448,6 +453,11 @@ fn weapons_panel(
                     commands.remove_resource::<SelectionEnabled>();
                 }
             });
+        }
+        let mut autofire = self_intel.autofire;
+        ui.checkbox(&mut autofire, "[V] Autofire");
+        if autofire != self_intel.autofire {
+            set_autofire.send(SetAutofire(autofire));
         }
     });
 }
@@ -491,6 +501,7 @@ fn spawn_projectile_graphics(
 }
 
 fn update_bullet_graphic(
+    targets: Query<(&ShipIntel, &Transform), Without<Traversal>>,
     ships: Query<&Transform, Without<Traversal>>,
     mut bullets: Query<(
         &Traversal,
@@ -501,12 +512,12 @@ fn update_bullet_graphic(
     )>,
 ) {
     for (traversal, target, origin, incidence, mut bullet) in &mut bullets {
-        let target_transform = ships.get(target.ship).unwrap();
+        let (target_intel, target_transform) = targets.get(target.ship).unwrap();
         let origin = ships.get(origin.ship).unwrap().translation.xy(); // TODO weapon mount
         let out_mid = Vec2::X * 1000.0;
-        let destination = (target_transform.rotation * delete_me(target.room).extend(3.0)
-            + target_transform.translation)
-            .xy(); // TODO room
+        let room_center = room_center(target_intel, target.room).extend(3.0);
+        let destination =
+            (target_transform.rotation * room_center + target_transform.translation).xy();
         let in_mid = destination - 1000.0 * ***incidence;
 
         bullet.translation = if **traversal < 0.5 {
@@ -527,6 +538,7 @@ fn update_bullet_graphic(
 enum Controls {
     SystemPower { dir: PowerDir, system: SystemId },
     WeaponPower { dir: PowerDir, weapon_index: usize },
+    Autofire,
 }
 
 impl Controls {
@@ -552,32 +564,44 @@ impl Controls {
 }
 
 fn controls(
+    self_intel: Query<&SelfIntel>,
     ships: Query<(&ShipIntel, &ActionState<Controls>)>,
     mut targeting: EventWriter<SetProjectileWeaponTarget>,
     mut power: EventWriter<AdjustPower>,
     mut weapon_power: EventWriter<WeaponPower>,
+    mut set_autofire: EventWriter<SetAutofire>,
     mut commands: Commands,
 ) {
-    for (ship, actions) in &ships {
-        for action in actions.get_just_pressed() {
-            match action {
-                Controls::SystemPower { dir, system } => {
-                    power.send(AdjustPower { dir, system });
+    let Ok(self_intel) = self_intel.get_single() else {
+        return;
+    };
+    let Ok((ship, actions)) = ships.get(self_intel.ship) else {
+        return;
+    };
+    for action in actions.get_just_pressed() {
+        match action {
+            Controls::SystemPower { dir, system } => {
+                power.send(AdjustPower { dir, system });
+            }
+            Controls::WeaponPower { dir, weapon_index } => {
+                let Some(weapons) = &ship.basic.weapons else {
+                    continue;
+                };
+                if weapon_index >= weapons.weapons.len() {
+                    continue;
                 }
-                Controls::WeaponPower { dir, weapon_index } => {
-                    let Some(weapons) = &ship.basic.weapons else {
-                        continue;
-                    };
-                    if weapons.weapons[weapon_index].powered && dir == PowerDir::Request {
-                        targeting.send(SetProjectileWeaponTarget {
-                            weapon_index,
-                            target: None,
-                        });
-                        commands.insert_resource(TargetingWeapon(weapon_index));
-                    } else {
-                        weapon_power.send(WeaponPower { dir, weapon_index });
-                    }
+                if weapons.weapons[weapon_index].powered && dir == PowerDir::Request {
+                    targeting.send(SetProjectileWeaponTarget {
+                        weapon_index,
+                        target: None,
+                    });
+                    commands.insert_resource(TargetingWeapon(weapon_index));
+                } else {
+                    weapon_power.send(WeaponPower { dir, weapon_index });
                 }
+            }
+            Controls::Autofire => {
+                set_autofire.send(SetAutofire(!self_intel.autofire));
             }
         }
     }
@@ -586,7 +610,7 @@ fn controls(
 fn draw_targets(
     windows: Query<&Window, With<PrimaryWindow>>,
     self_intel: Query<&SelfIntel>,
-    ships: Query<&Transform>,
+    targets: Query<(&ShipIntel, &Transform)>,
     targeting_weapon: Option<Res<TargetingWeapon>>,
     mut gizmos: Gizmos,
 ) {
@@ -610,8 +634,8 @@ fn draw_targets(
 
     for (i, target) in self_intel.weapon_targets.iter().enumerate() {
         if let Some(target) = target {
-            let target_transform = ships.get(target.ship).unwrap();
-            let room_location = delete_me(target.room).extend(2.0);
+            let (target_intel, target_transform) = targets.get(target.ship).unwrap();
+            let room_location = room_center(target_intel, target.room).extend(2.0);
             let pos = target_transform.rotation * room_location + target_transform.translation;
             let (size, color) = size_color(i);
             gizmos.circle(pos, Direction3d::Z, size, color);
@@ -619,11 +643,6 @@ fn draw_targets(
     }
 }
 
-fn delete_me(room: usize) -> Vec2 {
-    match room {
-        0 => Vec2::new(-35.0, 0.0),
-        1 => Vec2::new(17.5, 0.0),
-        2 => Vec2::new(52.5, 0.0),
-        _ => unreachable!(),
-    }
+fn room_center(intel: &ShipIntel, room: usize) -> Vec2 {
+    SHIPS[intel.basic.ship_type].room_center(room) * 35.0
 }

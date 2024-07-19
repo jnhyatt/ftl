@@ -133,6 +133,7 @@ pub struct SelfIntel {
     pub missiles: usize,
     pub weapon_targets: Vec<Option<RoomTarget>>,
     pub crew: Vec<Crew>,
+    pub autofire: bool,
 }
 
 impl MapEntities for SelfIntel {

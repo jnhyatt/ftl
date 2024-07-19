@@ -46,7 +46,6 @@ pub fn protocol_plugin(app: &mut App) {
     app.replicate::<NeedsDodgeTest>();
     app.replicate_mapped::<RoomTarget>();
     app.replicate_mapped::<FiredFrom>();
-    app.replicate::<Name>();
     app.replicate::<Dead>();
 
     // Player inputs

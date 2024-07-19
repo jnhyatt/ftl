@@ -68,6 +68,12 @@ impl ShipState {
                 .map(|(weapons, _)| weapons.weapons().iter().map(|x| x.target()).collect())
                 .unwrap_or_default(),
             crew: self.crew.clone(),
+            autofire: self
+                .systems
+                .weapons
+                .as_ref()
+                .map(|(weapons, _)| weapons.autofire)
+                .unwrap_or(false),
         }
     }
 
@@ -338,7 +344,7 @@ impl ShipState {
         let current_location = match crew {
             CrewNavStatus::At(cell) => self
                 .nav_mesh
-                .section_with_path(*cell, path.next_waypoint().unwrap())
+                .section_with_cells(*cell, path.next_waypoint().unwrap())
                 .unwrap()
                 .to_location(*cell),
             CrewNavStatus::Navigating(nav) => nav.current_location,

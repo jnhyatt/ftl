@@ -81,7 +81,9 @@ impl CrewNav {
             let Some(next_goal) = self.path.next_waypoint() else {
                 return Poll::Ready(current_goal);
             };
-            let next_section = nav_mesh.section_with_path(current_goal, next_goal).unwrap();
+            let next_section = nav_mesh
+                .section_with_cells(current_goal, next_goal)
+                .unwrap();
             self.current_location = next_section.to_location(current_goal);
         }
         Poll::Pending
@@ -122,7 +124,7 @@ impl NavMesh {
 
     /// Find the [`NavSection`] that contains the path between `a` and `b`. If the graph was
     /// constructed correctly, there will be at most one.
-    pub fn section_with_path(&self, a: Cell, b: Cell) -> Option<NavSection> {
+    pub fn section_with_cells(&self, a: Cell, b: Cell) -> Option<NavSection> {
         self.sections().find(|x| x.contains(a) && x.contains(b))
     }
 
