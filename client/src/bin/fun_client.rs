@@ -19,6 +19,8 @@ use common::{
     nav::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
     projectiles::{FiredFrom, RoomTarget, Traversal},
     ship::{Dead, SystemId, SHIPS},
+    util::round_to_usize,
+    RACES,
 };
 use leafwing_input_manager::{
     action_state::ActionState, input_map::InputMap, plugin::InputManagerPlugin, Actionlike,
@@ -242,34 +244,36 @@ fn add_ship_graphic(
             ..default()
         });
 
+        let icon = |system| {
+            let sprite = match system {
+                SystemId::Engines => "engines.png",
+                SystemId::Shields => "shields.png",
+                SystemId::Weapons => "weapons.png",
+                SystemId::Oxygen => "oxygen.png",
+            };
+            let room = SHIPS[intel.basic.ship_type]
+                .room_systems
+                .iter()
+                .position(|x| *x == Some(system));
+            room.map(|room| {
+                (
+                    Pickable::IGNORE,
+                    SpriteBundle {
+                        transform: Transform::from_translation(
+                            room_center(intel, room).extend(1.5),
+                        )
+                        .with_rotation(transform.rotation.inverse()),
+                        texture: assets.load(sprite),
+                        ..default()
+                    },
+                )
+            })
+        };
         commands.entity(ship).with_children(|ship| {
-            ship.spawn((
-                Pickable::IGNORE,
-                SpriteBundle {
-                    transform: Transform::from_translation(room_center(intel, 2).extend(1.5))
-                        .with_rotation(transform.rotation.inverse()),
-                    texture: assets.load("shields.png"),
-                    ..default()
-                },
-            ));
-            ship.spawn((
-                Pickable::IGNORE,
-                SpriteBundle {
-                    transform: Transform::from_translation(room_center(intel, 1).extend(1.5))
-                        .with_rotation(transform.rotation.inverse()),
-                    texture: assets.load("engines.png"),
-                    ..default()
-                },
-            ));
-            ship.spawn((
-                Pickable::IGNORE,
-                SpriteBundle {
-                    transform: Transform::from_translation(room_center(intel, 3).extend(1.5))
-                        .with_rotation(transform.rotation.inverse()),
-                    texture: assets.load("weapons.png"),
-                    ..default()
-                },
-            ));
+            icon(SystemId::Shields).map(|x| ship.spawn(x));
+            icon(SystemId::Engines).map(|x| ship.spawn(x));
+            icon(SystemId::Weapons).map(|x| ship.spawn(x));
+            icon(SystemId::Oxygen).map(|x| ship.spawn(x));
         });
         if ship == my_ship {
             use KeyCode::*;
@@ -278,9 +282,9 @@ fn add_ship_graphic(
                 InputMap::default()
                     .insert(Controls::Autofire, KeyV)
                     .insert(Controls::power_system(Shields), KeyA)
-                    .insert(Controls::power_system(Shields), KeyA)
                     .insert(Controls::power_system(Engines), KeyS)
                     .insert(Controls::power_system(Weapons), KeyW)
+                    .insert(Controls::power_system(Oxygen), KeyF)
                     .insert(Controls::power_weapon(0), Digit1)
                     .insert(Controls::power_weapon(1), Digit2)
                     .insert(Controls::power_weapon(2), Digit3)
@@ -288,6 +292,7 @@ fn add_ship_graphic(
                     .insert_chord(Controls::depower_system(Shields), [ShiftLeft, KeyA])
                     .insert_chord(Controls::depower_system(Engines), [ShiftLeft, KeyS])
                     .insert_chord(Controls::depower_system(Weapons), [ShiftLeft, KeyW])
+                    .insert_chord(Controls::depower_system(Oxygen), [ShiftLeft, KeyF])
                     .insert_chord(Controls::depower_weapon(0), [ShiftLeft, Digit1])
                     .insert_chord(Controls::depower_weapon(1), [ShiftLeft, Digit2])
                     .insert_chord(Controls::depower_weapon(2), [ShiftLeft, Digit3])
@@ -472,7 +477,8 @@ fn crew_panel(mut ui: EguiContexts, self_intel: Query<&SelfIntel>) {
                 ui.heading(&crew.name);
                 ui.label(format!(
                     "Health: {}/{}",
-                    crew.health as usize, crew.max_health as usize
+                    round_to_usize(crew.health),
+                    round_to_usize(RACES[crew.race].max_health)
                 ));
             });
         }

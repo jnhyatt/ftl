@@ -1,5 +1,6 @@
 mod engines;
 mod events;
+mod oxygen;
 mod projectiles;
 mod reactor;
 mod shields;
@@ -22,9 +23,9 @@ use common::{
     nav::{Cell, CrewNavStatus},
     projectiles::{FiredFrom, NeedsDodgeTest, WeaponDamage},
     protocol_plugin,
-    ship::Dead,
+    ship::{Dead, SystemId},
     weapon::Weapon,
-    Crew, PROTOCOL_ID,
+    Crew, CrewTask, PROTOCOL_ID,
 };
 use events::{
     adjust_power, move_weapon, set_autofire, set_crew_goal, set_projectile_weapon_target,
@@ -41,6 +42,7 @@ use std::{
     net::{Ipv6Addr, SocketAddr, UdpSocket},
     time::{Duration, SystemTime},
 };
+use strum::IntoEnumIterator;
 
 fn main() {
     App::new()
@@ -183,7 +185,7 @@ pub fn update_ships(
     mut commands: Commands,
 ) {
     for (e, mut ship) in &mut ships {
-        if let Some((shields, _)) = &mut ship.systems.shields {
+        if let Some(shields) = &mut ship.systems.shields {
             shields.charge_shield();
         }
         if let Some(projectiles) = ship.update_weapons() {
@@ -203,6 +205,7 @@ pub fn update_ships(
         }
         ship.update_crew();
         ship.update_repair_status();
+        ship.update_oxygen();
     }
 }
 
@@ -217,7 +220,7 @@ fn fire_projectiles(
             projectile.remaining = new_remaining;
         } else {
             let ship = ships.get(projectile.fired_from.ship).unwrap();
-            if let Some((weapons, _)) = &ship.systems.weapons {
+            if let Some(weapons) = &ship.systems.weapons {
                 if weapons.weapons()[projectile.fired_from.weapon_index].is_powered() {
                     commands.add(move |world: &mut World| {
                         let info = world.entity_mut(e).take::<Delayed>().unwrap();
@@ -359,40 +362,43 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     for _ in 0..8 {
         ship.reactor.upgrade();
     }
-    // TODO Move systems to specific rooms
-    ship.install_shields(2);
-    ship.install_engines(1);
-    ship.install_weapons(3);
+
+    for system in SystemId::iter() {
+        ship.install_system(system);
+    }
 
     // TODO Add a dedicated API to bring on crew
     ship.crew.push(Crew {
+        race: 0,
         name: "Fish".into(),
         nav_status: CrewNavStatus::At(Cell(0)),
         health: 100.0,
-        max_health: 100.0,
+        task: CrewTask::Idle,
     });
     ship.crew.push(Crew {
+        race: 0,
         name: "Virus".into(),
         nav_status: CrewNavStatus::At(Cell(4)),
         health: 100.0,
-        max_health: 100.0,
+        task: CrewTask::Idle,
     });
     ship.crew.push(Crew {
+        race: 0,
         name: "Stick".into(),
         nav_status: CrewNavStatus::At(Cell(6)),
         health: 100.0,
-        max_health: 100.0,
+        task: CrewTask::Idle,
     });
 
-    let (shields, _) = ship.systems.shields.as_mut().unwrap();
+    let shields = ship.systems.shields.as_mut().unwrap();
     for _ in 0..3 {
         shields.upgrade();
     }
-    let (engines, _) = ship.systems.engines.as_mut().unwrap();
+    let engines = ship.systems.engines.as_mut().unwrap();
     for _ in 0..3 {
         engines.upgrade();
     }
-    let (weapons, _) = ship.systems.weapons.as_mut().unwrap();
+    let weapons = ship.systems.weapons.as_mut().unwrap();
     for _ in 0..3 {
         weapons.upgrade();
     }

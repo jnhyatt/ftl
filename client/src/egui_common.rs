@@ -1,5 +1,8 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, egui::Ui, EguiContexts};
+use bevy_egui::{
+    egui::{self, Color32, RichText, Ui},
+    EguiContexts,
+};
 use bevy_replicon::prelude::*;
 use common::{
     compute_dodge_chance,
@@ -37,7 +40,17 @@ pub fn status_panel(
             let dodge_chance = compute_dodge_chance(engines.current_power);
             ui.label(format!("Dodge Chance: {dodge_chance}%"));
         }
-        ui.label(format!("Missiles: {}", self_intel.missiles));
+        let mut oxygen_text =
+            RichText::new(format!("Oxygen: {}%", (self_intel.oxygen * 100.0).round()));
+        if self_intel.oxygen < 0.25 {
+            oxygen_text = oxygen_text.color(Color32::RED);
+        }
+        ui.label(oxygen_text);
+        let mut missile_text = RichText::new(format!("Missiles: {}", self_intel.missiles));
+        if self_intel.missiles < 4 {
+            missile_text = missile_text.color(Color32::RED);
+        }
+        ui.label(missile_text);
     });
 }
 
@@ -105,6 +118,18 @@ pub fn power_panel(
                 adjust_power.send(request);
             }
         }
+        if let Some(oxygen) = systems.get(&SystemId::Oxygen) {
+            ui.label("[F] Oxygen");
+            if let Some(request) = power_bar(
+                ui,
+                oxygen.current_power,
+                oxygen.upgrade_level,
+                oxygen.damage,
+                SystemId::Oxygen,
+            ) {
+                adjust_power.send(request);
+            }
+        }
     });
 }
 
@@ -120,6 +145,7 @@ fn power_bar(
         SystemId::Shields => 'A',
         SystemId::Weapons => 'W',
         SystemId::Engines => 'S',
+        SystemId::Oxygen => 'F',
     };
     let mut result = None;
     ui.horizontal(|ui| {
@@ -314,6 +340,9 @@ pub fn enemy_panels(
                             ui.label(weapon.weapon.name);
                         });
                     }
+                }
+                if let Some(oxygen) = &intel.basic.oxygen {
+                    ui.label(format!("Oxygen: {:?}", oxygen));
                 }
             }
         });

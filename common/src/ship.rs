@@ -12,6 +12,7 @@ pub enum SystemId {
     Shields,
     Weapons,
     Engines,
+    Oxygen,
 }
 
 impl std::fmt::Display for SystemId {
@@ -20,6 +21,7 @@ impl std::fmt::Display for SystemId {
             Self::Shields => write!(f, "shields"),
             Self::Weapons => write!(f, "weapons"),
             Self::Engines => write!(f, "engines"),
+            Self::Oxygen => write!(f, "oxygen"),
         }
     }
 }
@@ -44,6 +46,7 @@ pub struct ShipType {
     pub nav_mesh: (&'static [LineSection], &'static [SquareSection]),
     pub path_graph: &'static [(Cell, &'static [Cell])],
     pub cell_positions: &'static [Vec2],
+    pub room_systems: &'static [Option<SystemId>],
 }
 
 impl ShipType {
@@ -134,5 +137,13 @@ pub const SHIPS: [ShipType; 1] = [ShipType {
         Vec2::new(3.0, 0.5),
         Vec2::new(-2.0, 1.5),
         Vec2::new(-1.0, 1.5),
+    ],
+    room_systems: &[
+        Some(SystemId::Oxygen),
+        Some(SystemId::Engines),
+        Some(SystemId::Shields),
+        Some(SystemId::Weapons),
+        None,
+        None,
     ],
 }];

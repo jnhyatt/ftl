@@ -4,10 +4,10 @@ pub mod lobby;
 pub mod nav;
 pub mod projectiles;
 pub mod ship;
+pub mod util;
 pub mod weapon;
 
 mod replicate_resource;
-mod util;
 
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
@@ -59,10 +59,14 @@ pub fn protocol_plugin(app: &mut App) {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Crew {
+    pub race: usize,
     pub name: String,
     pub nav_status: CrewNavStatus,
+    /// Current health in `[0, max_health]`.
     pub health: f32,
-    pub max_health: f32,
+    /// Typical crew have 100 max health. That's why it goes up to 100 instead of from 0 to 1: if
+    /// health was measured as a percentage of max health, a `[0, 1]` range would make more sense.
+    pub task: CrewTask,
 }
 
 impl Crew {
@@ -72,18 +76,34 @@ impl Crew {
 
     pub fn intel(&self) -> CrewIntel {
         CrewIntel {
+            race: self.race,
             name: self.name.clone(),
             nav_status: match &self.nav_status {
                 CrewNavStatus::At(cell) => CrewNavIntel::At(*cell),
                 CrewNavStatus::Navigating(nav) => CrewNavIntel::Navigating(nav.current_location),
             },
             health: self.health,
-            max_health: self.max_health,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum CrewTask {
+    Idle,
+    RepairSystem,
 }
 
 // TODO Change this to also check piloting and manning crew skills
 pub fn compute_dodge_chance(engine_power: usize) -> usize {
     engine_power * 5
 }
+
+pub struct Race {
+    pub name: &'static str,
+    pub max_health: f32,
+}
+
+pub const RACES: [Race; 1] = [Race {
+    name: "Human",
+    max_health: 100.0,
+}];

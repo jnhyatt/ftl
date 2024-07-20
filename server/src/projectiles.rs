@@ -39,7 +39,7 @@ pub fn projectile_test_dodge(
             .systems
             .engines
             .as_ref()
-            .map(|(engines, _)| compute_dodge_chance(engines.current_power()))
+            .map(|engines| compute_dodge_chance(engines.current_power()))
             .unwrap_or_default();
         let roll = thread_rng().gen_range(0..100);
         if roll < dodge_chance {
@@ -67,7 +67,7 @@ pub fn projectile_shield_interact(
             continue;
         }
         let mut ship = ships.get_mut(target.ship).unwrap();
-        let Some((shields, _)) = ship.systems.shields.as_mut() else {
+        let Some(shields) = ship.systems.shields.as_mut() else {
             continue;
         };
         if *shield_pierce >= shields.layers {
@@ -108,13 +108,11 @@ pub fn projectile_collide_hull(
             }
         }
         ship.crew.retain(|crew| crew.health > 0.0);
-        let Some(system) = ship.systems.system_in_room(target.room) else {
-            continue;
-        };
-        ship.systems
-            .system_mut(system)
-            .unwrap() // hmmmmmmmmmmmmm
-            .damage_system(*damage, &mut ship.reactor);
+        if let Some(system) = SHIPS[ship.ship_type].room_systems[target.room] {
+            if let Some(system) = ship.systems.system_mut(system) {
+                system.damage_system(*damage, &mut ship.reactor);
+            }
+        }
     }
 }
 

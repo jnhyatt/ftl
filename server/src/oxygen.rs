@@ -5,13 +5,13 @@ use crate::{
     ship_system::{boring_add_power, boring_remove_power, PowerContext, ShipSystem, SystemStatus},
 };
 
-#[derive(Debug, Default, Clone)]
-pub struct Engines {
+#[derive(Default, Clone, Debug)]
+pub struct Oxygen {
     status: SystemStatus,
     current_power: usize,
 }
 
-impl ShipSystem for Engines {
+impl ShipSystem for Oxygen {
     fn system_status(&self) -> SystemStatus {
         self.status
     }
@@ -29,11 +29,11 @@ impl ShipSystem for Engines {
             self.status.max_power(),
             &mut self.current_power,
             reactor,
-            SystemId::Engines,
+            SystemId::Oxygen,
         );
     }
 
     fn remove_power(&mut self, reactor: &mut Reactor) {
-        boring_remove_power(&mut self.current_power, reactor, SystemId::Engines);
+        boring_remove_power(&mut self.current_power, reactor, SystemId::Oxygen);
     }
 }

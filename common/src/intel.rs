@@ -73,6 +73,7 @@ pub struct BasicIntel {
     pub engines: Option<SystemDamageIntel>,
     /// Basic weapons status if the system is installed.
     pub weapons: Option<WeaponsIntel>,
+    pub oxygen: Option<SystemDamageIntel>,
 }
 
 /// Includes everything own crew are able to see. Drones (including hacking drones when powered) and
@@ -96,10 +97,10 @@ pub struct RoomIntel {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CrewIntel {
+    pub race: usize,
     pub name: String,
     pub nav_status: CrewNavIntel,
     pub health: f32,
-    pub max_health: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -134,6 +135,7 @@ pub struct SelfIntel {
     pub weapon_targets: Vec<Option<RoomTarget>>,
     pub crew: Vec<Crew>,
     pub autofire: bool,
+    pub oxygen: f32,
 }
 
 impl MapEntities for SelfIntel {

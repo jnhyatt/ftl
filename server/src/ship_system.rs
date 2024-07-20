@@ -1,44 +1,52 @@
-use crate::{engines::Engines, reactor::Reactor, shields::Shields, weapons::Weapons};
+use crate::{
+    engines::Engines, oxygen::Oxygen, reactor::Reactor, shields::Shields, weapons::Weapons,
+};
 use common::{
     intel::{SystemDamageIntel, SystemIntel},
     ship::SystemId,
 };
-use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug, Default)]
 pub struct ShipSystems {
-    pub shields: Option<(Shields, usize)>,
-    pub engines: Option<(Engines, usize)>,
-    pub weapons: Option<(Weapons, usize)>,
+    pub shields: Option<Shields>,
+    pub weapons: Option<Weapons>,
+    pub engines: Option<Engines>,
+    pub oxygen: Option<Oxygen>,
 }
 
 impl ShipSystems {
-    // Finds the system housed by `room` (there may not be a system in that room).
-    pub fn system_in_room(&self, room: usize) -> Option<SystemId> {
-        SystemId::iter().find(|&system| self.system_room(system) == Some(room))
-    }
-
-    pub fn system_room(&self, system: SystemId) -> Option<usize> {
-        match system {
-            SystemId::Shields => self.shields.as_ref().map(|(_, x)| *x),
-            SystemId::Engines => self.engines.as_ref().map(|(_, x)| *x),
-            SystemId::Weapons => self.weapons.as_ref().map(|(_, x)| *x),
-        }
-    }
-
     pub fn system(&self, system: SystemId) -> Option<&dyn ShipSystem> {
         match system {
-            SystemId::Shields => self.shields.as_ref().map(|(x, _)| x as &dyn ShipSystem),
-            SystemId::Weapons => self.weapons.as_ref().map(|(x, _)| x as &dyn ShipSystem),
-            SystemId::Engines => self.engines.as_ref().map(|(x, _)| x as &dyn ShipSystem),
+            SystemId::Shields => self.shields.as_ref().map(|x| x as &dyn ShipSystem),
+            SystemId::Weapons => self.weapons.as_ref().map(|x| x as &dyn ShipSystem),
+            SystemId::Engines => self.engines.as_ref().map(|x| x as &dyn ShipSystem),
+            SystemId::Oxygen => self.oxygen.as_ref().map(|x| x as &dyn ShipSystem),
         }
     }
 
     pub fn system_mut(&mut self, system: SystemId) -> Option<&mut dyn ShipSystem> {
         match system {
-            SystemId::Shields => self.shields.as_mut().map(|(x, _)| x as &mut dyn ShipSystem),
-            SystemId::Weapons => self.weapons.as_mut().map(|(x, _)| x as &mut dyn ShipSystem),
-            SystemId::Engines => self.engines.as_mut().map(|(x, _)| x as &mut dyn ShipSystem),
+            SystemId::Shields => self.shields.as_mut().map(|x| x as &mut dyn ShipSystem),
+            SystemId::Weapons => self.weapons.as_mut().map(|x| x as &mut dyn ShipSystem),
+            SystemId::Engines => self.engines.as_mut().map(|x| x as &mut dyn ShipSystem),
+            SystemId::Oxygen => self.oxygen.as_mut().map(|x| x as &mut dyn ShipSystem),
+        }
+    }
+
+    pub fn install(&mut self, system: SystemId) {
+        match system {
+            SystemId::Shields => {
+                self.shields = Some(Default::default());
+            }
+            SystemId::Weapons => {
+                self.weapons = Some(Default::default());
+            }
+            SystemId::Engines => {
+                self.engines = Some(Default::default());
+            }
+            SystemId::Oxygen => {
+                self.oxygen = Some(Default::default());
+            }
         }
     }
 }
@@ -176,4 +184,31 @@ pub trait ShipSystem {
         let SystemStatus { damage, .. } = self.system_status();
         damage
     }
+}
+
+pub fn boring_add_power(
+    max: usize,
+    current_power: &mut usize,
+    reactor: &mut Reactor,
+    system: SystemId,
+) {
+    if *current_power + 1 > max {
+        eprintln!("Can't add power to {system}, system power is already at max.");
+        return;
+    }
+    let Some(new_available) = reactor.available.checked_sub(1) else {
+        eprintln!("Can't add power to {system}, no available reactor power.");
+        return;
+    };
+    reactor.available = new_available;
+    *current_power += 1;
+}
+
+pub fn boring_remove_power(current_power: &mut usize, reactor: &mut Reactor, system: SystemId) {
+    if *current_power == 0 {
+        eprintln!("Can't remove power from {system}, system power is already zero.");
+        return;
+    }
+    reactor.available += 1;
+    *current_power -= 1;
 }

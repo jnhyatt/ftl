@@ -13,6 +13,8 @@ use common::{
     lobby::ReadyState,
     projectiles::{NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage},
     ship::{Dead, SHIPS},
+    util::round_to_usize,
+    RACES,
 };
 
 fn main() {
@@ -148,7 +150,8 @@ fn crew_panel(
                 ui.heading(&crew.name);
                 ui.label(format!(
                     "Health: {}/{}",
-                    crew.health as usize, crew.max_health as usize
+                    round_to_usize(crew.health),
+                    round_to_usize(RACES[crew.race].max_health)
                 ));
                 // let mut target_room = current_room;
                 // let room_name = |room| format!("Room {}", room + 1);
