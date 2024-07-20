@@ -58,6 +58,14 @@ impl ShipType {
             .average()
             .unwrap()
     }
+
+    pub fn doors(&self) -> impl Iterator<Item = [Cell; 2]> {
+        self.nav_mesh.0.iter().map(|x| x.0).filter(|&[a, b]| {
+            let a_room = self.rooms.iter().position(|x| x.has_cell(a)).unwrap();
+            let b_room = self.rooms.iter().position(|x| x.has_cell(b)).unwrap();
+            a_room != b_room
+        })
+    }
 }
 
 pub const SHIPS: [ShipType; 1] = [ShipType {

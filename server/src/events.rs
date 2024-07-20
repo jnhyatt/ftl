@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetProjectileWeaponTarget,
-        WeaponPower,
+        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorOpen,
+        SetProjectileWeaponTarget, WeaponPower,
     },
     ship::Dead,
 };
@@ -158,5 +158,27 @@ pub fn set_autofire(
             continue;
         };
         ship.set_autofire(autofire);
+    }
+}
+
+pub fn set_door_open(
+    mut events: EventReader<FromClient<SetDoorOpen>>,
+    client_ships: Res<ClientShips>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
+) {
+    for &FromClient {
+        client_id,
+        event: SetDoorOpen { door, open },
+    } in events.read()
+    {
+        let Some(&client_ship) = client_ships.get(&client_id) else {
+            eprintln!("No ship entry for client {client_id:?}.");
+            continue;
+        };
+        let Ok(mut ship) = ships.get_mut(client_ship) else {
+            eprintln!("Entity {client_ship:?} is not a ship.");
+            continue;
+        };
+        ship.doors[door].open = open;
     }
 }

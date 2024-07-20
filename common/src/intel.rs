@@ -30,7 +30,7 @@ use crate::{
     projectiles::RoomTarget,
     ship::SystemId,
     weapon::Weapon,
-    Crew,
+    Crew, DoorState,
 };
 use bevy::{ecs::entity::MapEntities, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -74,6 +74,7 @@ pub struct BasicIntel {
     /// Basic weapons status if the system is installed.
     pub weapons: Option<WeaponsIntel>,
     pub oxygen: Option<SystemDamageIntel>,
+    pub doors: Vec<DoorState>,
 }
 
 /// Includes everything own crew are able to see. Drones (including hacking drones when powered) and

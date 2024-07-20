@@ -8,7 +8,7 @@ use common::{
     projectiles::RoomTarget,
     ship::{SystemId, SHIPS},
     util::IterAvg,
-    Crew,
+    Crew, DoorState,
 };
 use strum::IntoEnumIterator;
 
@@ -29,6 +29,7 @@ pub struct ShipState {
     pub missiles: usize,
     /// Oxygen level for each room in `[0, 1]`. Crew take damage below `x < 0.05`.
     pub oxygen: Vec<f32>,
+    pub doors: Vec<DoorState>,
     nav_mesh: NavMesh,
     path_graph: PathGraph,
 }
@@ -47,6 +48,10 @@ impl ShipState {
             crew: default(),
             missiles: 10,
             oxygen: vec![1.0; SHIPS[ship_type].rooms.len()],
+            doors: SHIPS[ship_type]
+                .doors()
+                .map(|_| DoorState::default())
+                .collect(),
             nav_mesh: NavMesh {
                 lines: nav_lines.into(),
                 squares: nav_squares.into(),
@@ -121,6 +126,7 @@ impl ShipState {
                 .oxygen
                 .as_ref()
                 .map(|oxygen| oxygen.damage_intel()),
+            doors: self.doors.clone(),
         }
     }
 

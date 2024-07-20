@@ -66,6 +66,12 @@ pub struct SetCrewGoal {
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetAutofire(pub bool);
 
+#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct SetDoorOpen {
+    pub door: usize,
+    pub open: bool,
+}
+
 #[derive(Reflect, Serialize, Deserialize, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PowerDir {
     Request,

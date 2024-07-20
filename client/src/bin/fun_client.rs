@@ -11,8 +11,8 @@ use client::{
 };
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetProjectileWeaponTarget,
-        WeaponPower,
+        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorOpen,
+        SetProjectileWeaponTarget, WeaponPower,
     },
     intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
     lobby::ReadyState,
@@ -69,7 +69,14 @@ fn main() {
             ),
         )
         .add_systems(Update, (sync_crew_count, sync_crew_positions).chain())
-        .add_systems(Update, (spawn_projectile_graphics, update_bullet_graphic))
+        .add_systems(
+            Update,
+            (
+                spawn_projectile_graphics,
+                update_bullet_graphic,
+                update_doors,
+            ),
+        )
         .add_systems(Update, (controls, draw_targets))
         .run();
 }
@@ -85,6 +92,9 @@ enum CellTex {
     BottomRight,
     Right,
 }
+
+#[derive(Component)]
+struct Door(usize);
 
 #[derive(Component)]
 struct CrewGraphic(usize);
@@ -221,6 +231,23 @@ fn handle_cell_click(
     }
 }
 
+fn toggle_door(
+    event: Listener<Pointer<Click>>,
+    ships: Query<&ShipIntel, Without<Dead>>,
+    doors: Query<(&Door, &Parent)>,
+    mut set_door_open: EventWriter<SetDoorOpen>,
+) {
+    let (&Door(door), parent) = doors.get(event.target).unwrap();
+    let Ok(ship) = ships.get(**parent) else {
+        return;
+    };
+    let is_open = ship.basic.doors[door].open;
+    set_door_open.send(SetDoorOpen {
+        door,
+        open: !is_open,
+    });
+}
+
 fn add_ship_graphic(
     self_intel: Query<&SelfIntel>,
     ships: Query<(Entity, &ShipIntel), Without<Sprite>>,
@@ -269,6 +296,30 @@ fn add_ship_graphic(
                 )
             })
         };
+        let door = |i| {
+            let [a, b] = SHIPS[intel.basic.ship_type].doors().nth(i).unwrap();
+            let ship = &SHIPS[intel.basic.ship_type];
+            let (a, b) = (
+                ship.cell_positions[a.0] * 35.0 + Vec2::splat(0.1),
+                ship.cell_positions[b.0] * 35.0 + Vec2::splat(0.1),
+            );
+            let door_pos = ((a + b) / 2.0).extend(1.5);
+            let x_axis = (b - a).normalize();
+            let transform =
+                Transform::from_translation(door_pos).with_rotation(Quat::from_mat3(&Mat3 {
+                    x_axis: x_axis.extend(0.0),
+                    y_axis: x_axis.perp().extend(0.0),
+                    z_axis: Vec3::Z,
+                }));
+            (
+                Door(i),
+                On::<Pointer<Click>>::run(toggle_door),
+                SpriteBundle {
+                    transform,
+                    ..default()
+                },
+            )
+        };
         commands.entity(ship).with_children(|ship| {
             icon(SystemId::Shields).map(|x| ship.spawn(x));
             icon(SystemId::Engines).map(|x| ship.spawn(x));
@@ -278,27 +329,34 @@ fn add_ship_graphic(
         if ship == my_ship {
             use KeyCode::*;
             use SystemId::*;
-            commands.entity(ship).insert(InputManagerBundle::with_map(
-                InputMap::default()
-                    .insert(Controls::Autofire, KeyV)
-                    .insert(Controls::power_system(Shields), KeyA)
-                    .insert(Controls::power_system(Engines), KeyS)
-                    .insert(Controls::power_system(Weapons), KeyW)
-                    .insert(Controls::power_system(Oxygen), KeyF)
-                    .insert(Controls::power_weapon(0), Digit1)
-                    .insert(Controls::power_weapon(1), Digit2)
-                    .insert(Controls::power_weapon(2), Digit3)
-                    .insert(Controls::power_weapon(3), Digit4)
-                    .insert_chord(Controls::depower_system(Shields), [ShiftLeft, KeyA])
-                    .insert_chord(Controls::depower_system(Engines), [ShiftLeft, KeyS])
-                    .insert_chord(Controls::depower_system(Weapons), [ShiftLeft, KeyW])
-                    .insert_chord(Controls::depower_system(Oxygen), [ShiftLeft, KeyF])
-                    .insert_chord(Controls::depower_weapon(0), [ShiftLeft, Digit1])
-                    .insert_chord(Controls::depower_weapon(1), [ShiftLeft, Digit2])
-                    .insert_chord(Controls::depower_weapon(2), [ShiftLeft, Digit3])
-                    .insert_chord(Controls::depower_weapon(3), [ShiftLeft, Digit4])
-                    .build(),
-            ));
+            commands
+                .entity(ship)
+                .insert(InputManagerBundle::with_map(
+                    InputMap::default()
+                        .insert(Controls::Autofire, KeyV)
+                        .insert(Controls::power_system(Shields), KeyA)
+                        .insert(Controls::power_system(Engines), KeyS)
+                        .insert(Controls::power_system(Weapons), KeyW)
+                        .insert(Controls::power_system(Oxygen), KeyF)
+                        .insert(Controls::power_weapon(0), Digit1)
+                        .insert(Controls::power_weapon(1), Digit2)
+                        .insert(Controls::power_weapon(2), Digit3)
+                        .insert(Controls::power_weapon(3), Digit4)
+                        .insert_chord(Controls::depower_system(Shields), [ShiftLeft, KeyA])
+                        .insert_chord(Controls::depower_system(Engines), [ShiftLeft, KeyS])
+                        .insert_chord(Controls::depower_system(Weapons), [ShiftLeft, KeyW])
+                        .insert_chord(Controls::depower_system(Oxygen), [ShiftLeft, KeyF])
+                        .insert_chord(Controls::depower_weapon(0), [ShiftLeft, Digit1])
+                        .insert_chord(Controls::depower_weapon(1), [ShiftLeft, Digit2])
+                        .insert_chord(Controls::depower_weapon(2), [ShiftLeft, Digit3])
+                        .insert_chord(Controls::depower_weapon(3), [ShiftLeft, Digit4])
+                        .build(),
+                ))
+                .with_children(|ship| {
+                    for i in 0..SHIPS[intel.basic.ship_type].doors().count() {
+                        ship.spawn(door(i));
+                    }
+                });
         }
 
         for (room_index, room) in SHIPS[intel.basic.ship_type].rooms.iter().enumerate() {
@@ -337,6 +395,24 @@ fn add_ship_graphic(
                 commands.entity(ship).add_child(cell);
             }
         }
+    }
+}
+
+fn update_doors(
+    ships: Query<&ShipIntel>,
+    mut doors: Query<(&Door, &Parent, &mut Handle<Image>)>,
+    assets: Res<AssetServer>,
+) {
+    for (&Door(door), parent, mut sprite) in &mut doors {
+        let Ok(ship) = ships.get(parent.get()) else {
+            return;
+        };
+        let door = ship.basic.doors[door];
+        *sprite = match door.open {
+            _ if door.broken() => assets.load("door-broken.png"),
+            false => assets.load("door-closed.png"),
+            true => assets.load("door-open.png"),
+        };
     }
 }
 

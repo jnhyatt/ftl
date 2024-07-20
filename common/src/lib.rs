@@ -12,7 +12,8 @@ mod replicate_resource;
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use events::{
-    AdjustPower, MoveWeapon, SetAutofire, SetCrewGoal, SetProjectileWeaponTarget, WeaponPower,
+    AdjustPower, MoveWeapon, SetAutofire, SetCrewGoal, SetDoorOpen, SetProjectileWeaponTarget,
+    WeaponPower,
 };
 use intel::{
     CrewIntel, CrewNavIntel, CrewVisionIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel,
@@ -55,6 +56,22 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<MoveWeapon>(ChannelKind::Ordered);
     app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
+    app.add_client_event::<SetDoorOpen>(ChannelKind::Ordered);
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Default, Debug)]
+pub struct DoorState {
+    pub open: bool,
+    /// How much longer this door will be broken in seconds. When a boarder breaks the door, this
+    /// timer gets set to some positive amount, and ticks downward every frame. If this value is
+    /// zero, this door can't be operated normally.
+    pub broken_timer: f32,
+}
+
+impl DoorState {
+    pub fn broken(&self) -> bool {
+        self.broken_timer > 0.0
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
