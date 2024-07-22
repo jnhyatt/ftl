@@ -1,3 +1,5 @@
+use std::iter::zip;
+
 use bevy::prelude::*;
 use common::{
     intel::{
@@ -6,7 +8,7 @@ use common::{
     },
     nav::{Cell, CrewNav, CrewNavStatus, NavMesh, PathGraph},
     projectiles::RoomTarget,
-    ship::{SystemId, SHIPS},
+    ship::{Door, SystemId, SHIPS},
     util::IterAvg,
     Crew, DoorState,
 };
@@ -49,7 +51,8 @@ impl ShipState {
             missiles: 10,
             oxygen: vec![1.0; SHIPS[ship_type].rooms.len()],
             doors: SHIPS[ship_type]
-                .doors()
+                .doors
+                .iter()
                 .map(|_| DoorState::default())
                 .collect(),
             nav_mesh: NavMesh {
@@ -249,19 +252,34 @@ impl ShipState {
             3 => 0.084,
             _ => -0.012,
         };
-        // for door in doors {
-        //     let diff: f32 = door.b.o2 - door.a.o2;
-        //     fill_rate[door.a] += diff;
-        //     fill_rate[door.b] -= diff;
-        // }
+        let ship = &SHIPS[self.ship_type];
+        let room_count = ship.rooms.len();
+        let mut fill_rate = vec![fill_rate; room_count];
+        for door in ship
+            .doors
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| self.doors[i].is_open())
+            .map(|(_, x)| *x)
+        {
+            match door {
+                Door::Interior(a, b) => {
+                    let a_room = ship.cell_room(a);
+                    let b_room = ship.cell_room(b);
+                    let diff = self.oxygen[b_room] - self.oxygen[a_room];
+                    fill_rate[a_room] += diff;
+                    fill_rate[b_room] -= diff;
+                }
+                Door::Exterior(cell, _) => {
+                    let room = ship.cell_room(cell);
+                    fill_rate[room] -= self.oxygen[room];
+                }
+            }
+        }
         let dt = 1.0 / 64.0;
-        for room_oxygen in &mut self.oxygen {
+        for (room_oxygen, fill_rate) in zip(&mut self.oxygen, fill_rate) {
             *room_oxygen = (*room_oxygen + fill_rate * dt).clamp(0.0, 1.0);
         }
-        // let rooms = zip(SHIPS[self.ship_type].rooms, &self.oxygen);
-        // let room_o2 = rooms.map(|(room, o2)| room.cells.len() as f32 * o2);
-        // let total_o2 = room_o2.clone().fold(0.0, |x, y| x + y);
-        // let o2_per_cell = total_o2 / SHIPS[self.ship_type].cell_positions.len() as f32;
     }
 
     pub fn install_system(&mut self, system: SystemId) {

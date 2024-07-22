@@ -67,9 +67,9 @@ pub struct SetCrewGoal {
 pub struct SetAutofire(pub bool);
 
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct SetDoorOpen {
-    pub door: usize,
-    pub open: bool,
+pub enum SetDoorsOpen {
+    Single { door: usize, open: bool },
+    All { open: bool },
 }
 
 #[derive(Reflect, Serialize, Deserialize, Debug, Clone, Copy, Hash, PartialEq, Eq)]

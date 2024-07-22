@@ -28,7 +28,7 @@ use common::{
     Crew, CrewTask, PROTOCOL_ID,
 };
 use events::{
-    adjust_power, move_weapon, set_autofire, set_crew_goal, set_door_open,
+    adjust_power, move_weapon, set_autofire, set_crew_goal, set_doors_open,
     set_projectile_weapon_target, weapon_power,
 };
 use projectiles::{
@@ -75,7 +75,7 @@ fn main() {
                     move_weapon,
                     set_crew_goal,
                     set_autofire,
-                    set_door_open,
+                    set_doors_open,
                 ),
                 (
                     projectile_traversal,

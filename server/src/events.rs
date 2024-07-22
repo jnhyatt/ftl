@@ -2,10 +2,10 @@ use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorOpen,
+        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorsOpen,
         SetProjectileWeaponTarget, WeaponPower,
     },
-    ship::Dead,
+    ship::{Dead, Door, SHIPS},
 };
 
 use crate::{ship::ShipState, ClientShips};
@@ -161,16 +161,12 @@ pub fn set_autofire(
     }
 }
 
-pub fn set_door_open(
-    mut events: EventReader<FromClient<SetDoorOpen>>,
+pub fn set_doors_open(
+    mut events: EventReader<FromClient<SetDoorsOpen>>,
     client_ships: Res<ClientShips>,
     mut ships: Query<&mut ShipState, Without<Dead>>,
 ) {
-    for &FromClient {
-        client_id,
-        event: SetDoorOpen { door, open },
-    } in events.read()
-    {
+    for &FromClient { client_id, event } in events.read() {
         let Some(&client_ship) = client_ships.get(&client_id) else {
             eprintln!("No ship entry for client {client_id:?}.");
             continue;
@@ -179,6 +175,33 @@ pub fn set_door_open(
             eprintln!("Entity {client_ship:?} is not a ship.");
             continue;
         };
-        ship.doors[door].open = open;
+        match event {
+            SetDoorsOpen::Single { door, open } => {
+                ship.doors[door].open = open;
+            }
+            SetDoorsOpen::All { open } => {
+                if open {
+                    let interior_doors = SHIPS[ship.ship_type]
+                        .doors
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, door)| matches!(door, Door::Interior(_, _)))
+                        .map(|(x, _)| x);
+                    if interior_doors.clone().all(|x| ship.doors[x].open) {
+                        for door in &mut ship.doors {
+                            door.open = true;
+                        }
+                    } else {
+                        for door in interior_doors {
+                            ship.doors[door].open = true;
+                        }
+                    }
+                } else {
+                    for door in &mut ship.doors {
+                        door.open = false;
+                    }
+                }
+            }
+        }
     }
 }

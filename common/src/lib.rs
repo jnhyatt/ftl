@@ -12,7 +12,7 @@ mod replicate_resource;
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use events::{
-    AdjustPower, MoveWeapon, SetAutofire, SetCrewGoal, SetDoorOpen, SetProjectileWeaponTarget,
+    AdjustPower, MoveWeapon, SetAutofire, SetCrewGoal, SetDoorsOpen, SetProjectileWeaponTarget,
     WeaponPower,
 };
 use intel::{
@@ -56,7 +56,7 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<MoveWeapon>(ChannelKind::Ordered);
     app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
-    app.add_client_event::<SetDoorOpen>(ChannelKind::Ordered);
+    app.add_client_event::<SetDoorsOpen>(ChannelKind::Ordered);
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Default, Debug)]
@@ -71,6 +71,10 @@ pub struct DoorState {
 impl DoorState {
     pub fn broken(&self) -> bool {
         self.broken_timer > 0.0
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open || self.broken()
     }
 }
 

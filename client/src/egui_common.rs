@@ -7,7 +7,7 @@ use bevy_replicon::prelude::*;
 use common::{
     compute_dodge_chance,
     events::{AdjustPower, MoveWeapon, PowerDir, WeaponPower},
-    intel::{SelfIntel, ShipIntel, SystemsIntel},
+    intel::{SelfIntel, ShipIntel, SystemDamageIntel, SystemsIntel},
     lobby::{PlayerReady, ReadyState},
     ship::{Dead, SystemId},
     weapon::Weapon,
@@ -33,7 +33,20 @@ pub fn status_panel(
             ui.label("Hull Integrity");
             let max = intel.basic.max_hull;
             let current = intel.basic.hull;
-            ui.add(egui::ProgressBar::new(current as f32 / max as f32).desired_width(400.0));
+            let percent = current as f32 / max as f32;
+            let color = if percent > 0.66 {
+                Color32::GREEN
+            } else if percent > 0.33 {
+                Color32::YELLOW
+            } else {
+                Color32::RED
+            };
+            ui.add(
+                egui::ProgressBar::new(percent)
+                    .desired_width(400.0)
+                    .rounding(0.0)
+                    .fill(color),
+            );
             ui.label(format!("{current}/{max}"));
         });
         if let Some(engines) = systems.get(&SystemId::Engines) {
@@ -206,7 +219,7 @@ pub fn shields_panel(
             }
         });
         ui.horizontal(|ui| {
-            ui.add(egui::ProgressBar::new(shields.charge));
+            ui.add(egui::ProgressBar::new(shields.charge).rounding(0.0));
         });
     });
 }
@@ -286,7 +299,17 @@ pub fn weapon_power_ui(
 
 pub fn weapon_charge_ui(ui: &mut Ui, charge: f32, weapon: &Weapon) {
     let charge = charge / weapon.charge_time;
-    ui.add(egui::ProgressBar::new(charge).desired_width(100.0));
+    let color = if charge == 1.0 {
+        Color32::GREEN
+    } else {
+        Color32::WHITE
+    };
+    ui.add(
+        egui::ProgressBar::new(charge)
+            .desired_width(100.0)
+            .rounding(0.0)
+            .fill(color),
+    );
 }
 
 pub fn enemy_panels(
@@ -308,12 +331,18 @@ pub fn enemy_panels(
                     let max = intel.basic.max_hull;
                     let current = intel.basic.hull;
                     ui.add(
-                        egui::ProgressBar::new(current as f32 / max as f32).desired_width(400.0),
+                        egui::ProgressBar::new(current as f32 / max as f32)
+                            .desired_width(400.0)
+                            .rounding(0.0)
+                            .fill(Color32::GREEN),
                     );
                     ui.label(format!("{current}/{max}"));
                 });
                 if let Some(shields) = &intel.basic.shields {
-                    ui.label(format!("Shields: {:?}", shields.damage));
+                    ui.horizontal(|ui| {
+                        ui.label("Shields: ");
+                        system_damage_label(ui, &shields.damage);
+                    });
                     ui.horizontal(|ui| {
                         for _ in 0..shields.layers {
                             let _ = ui.selectable_label(true, "O");
@@ -323,14 +352,20 @@ pub fn enemy_panels(
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.add(egui::ProgressBar::new(shields.charge));
+                        ui.add(egui::ProgressBar::new(shields.charge).rounding(0.0));
                     });
                 }
                 if let Some(engines) = &intel.basic.engines {
-                    ui.label(format!("Engines: {:?}", engines));
+                    ui.horizontal(|ui| {
+                        ui.label("Engines: ");
+                        system_damage_label(ui, engines);
+                    });
                 }
                 if let Some(weapons) = &intel.basic.weapons {
-                    ui.label(format!("Weapons: {:?}", weapons.damage));
+                    ui.horizontal(|ui| {
+                        ui.label("Weapons: ");
+                        system_damage_label(ui, &weapons.damage);
+                    });
                     for weapon in &weapons.weapons {
                         ui.horizontal(|ui| {
                             let mut powered = weapon.powered;
@@ -342,9 +377,21 @@ pub fn enemy_panels(
                     }
                 }
                 if let Some(oxygen) = &intel.basic.oxygen {
-                    ui.label(format!("Oxygen: {:?}", oxygen));
+                    ui.horizontal(|ui| {
+                        ui.label("Oxygen: ");
+                        system_damage_label(ui, oxygen);
+                    });
                 }
             }
         });
     }
+}
+
+fn system_damage_label(ui: &mut Ui, intel: &SystemDamageIntel) {
+    let color = match intel {
+        SystemDamageIntel::Undamaged => Color32::GREEN,
+        SystemDamageIntel::Damaged => Color32::YELLOW,
+        SystemDamageIntel::Destroyed => Color32::RED,
+    };
+    ui.colored_label(color, format!("{intel:?}"));
 }

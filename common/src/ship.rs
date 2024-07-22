@@ -1,4 +1,8 @@
-use bevy::{math::Vec2, prelude::Component, reflect::Reflect};
+use bevy::{
+    math::{bounding::Aabb2d, Vec2},
+    prelude::Component,
+    reflect::Reflect,
+};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
@@ -47,6 +51,7 @@ pub struct ShipType {
     pub path_graph: &'static [(Cell, &'static [Cell])],
     pub cell_positions: &'static [Vec2],
     pub room_systems: &'static [Option<SystemId>],
+    pub doors: &'static [Door],
 }
 
 impl ShipType {
@@ -59,12 +64,46 @@ impl ShipType {
             .unwrap()
     }
 
-    pub fn doors(&self) -> impl Iterator<Item = [Cell; 2]> {
-        self.nav_mesh.0.iter().map(|x| x.0).filter(|&[a, b]| {
-            let a_room = self.rooms.iter().position(|x| x.has_cell(a)).unwrap();
-            let b_room = self.rooms.iter().position(|x| x.has_cell(b)).unwrap();
-            a_room != b_room
-        })
+    pub fn cell_room(&self, cell: Cell) -> usize {
+        self.rooms.iter().position(|x| x.has_cell(cell)).unwrap()
+    }
+
+    pub fn cell_aabb(&self, Cell(cell): Cell) -> Aabb2d {
+        let center = self.cell_positions[cell];
+        Aabb2d {
+            min: center + Vec2::splat(-17.5),
+            max: center + Vec2::splat(17.5),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Door {
+    /// A door between rooms inside the ship. Order is ignored.
+    Interior(Cell, Cell),
+    /// A door to the outside of the ship. Opening this door should result in the attached room
+    /// quickly emptying of oxygen. The given direction is the side of the cell it's on, or the
+    /// direction leading to out of the ship.
+    Exterior(Cell, DoorDir),
+}
+
+// TODO replace with Bevy's `CompassQuadrant`
+#[derive(Debug, Clone, Copy)]
+pub enum DoorDir {
+    Right,
+    Top,
+    Left,
+    Bottom,
+}
+
+impl DoorDir {
+    pub fn offset(&self) -> Vec2 {
+        match self {
+            DoorDir::Right => Vec2::new(17.5, 0.0),
+            DoorDir::Top => Vec2::new(0.0, 17.5),
+            DoorDir::Left => Vec2::new(-17.5, 0.0),
+            DoorDir::Bottom => Vec2::new(0.0, -17.5),
+        }
     }
 }
 
@@ -127,24 +166,24 @@ pub const SHIPS: [ShipType; 1] = [ShipType {
         (Cell(17), &[Cell(8), Cell(16)]),
     ],
     cell_positions: &[
-        Vec2::new(-2.0, -1.5),
-        Vec2::new(-1.0, -1.5),
-        Vec2::new(-3.0, -0.5),
-        Vec2::new(-2.0, -0.5),
-        Vec2::new(-3.0, 0.5),
-        Vec2::new(-2.0, 0.5),
-        Vec2::new(-1.0, -0.5),
-        Vec2::new(0.0, -0.5),
-        Vec2::new(-1.0, 0.5),
-        Vec2::new(0.0, 0.5),
-        Vec2::new(1.0, -0.5),
-        Vec2::new(2.0, -0.5),
-        Vec2::new(1.0, 0.5),
-        Vec2::new(2.0, 0.5),
-        Vec2::new(3.0, -0.5),
-        Vec2::new(3.0, 0.5),
-        Vec2::new(-2.0, 1.5),
-        Vec2::new(-1.0, 1.5),
+        Vec2::new(-70.0, -52.5),
+        Vec2::new(-35.0, -52.5),
+        Vec2::new(-105.0, -17.5),
+        Vec2::new(-70.0, -17.5),
+        Vec2::new(-105.0, 17.5),
+        Vec2::new(-70.0, 17.5),
+        Vec2::new(-35.0, -17.5),
+        Vec2::new(0.0, -17.5),
+        Vec2::new(-35.0, 17.5),
+        Vec2::new(0.0, 17.5),
+        Vec2::new(35.0, -17.5),
+        Vec2::new(70.0, -17.5),
+        Vec2::new(35.0, 17.5),
+        Vec2::new(70.0, 17.5),
+        Vec2::new(105.0, -17.5),
+        Vec2::new(105.0, 17.5),
+        Vec2::new(-70.0, 52.5),
+        Vec2::new(-35.0, 52.5),
     ],
     room_systems: &[
         Some(SystemId::Oxygen),
@@ -153,5 +192,14 @@ pub const SHIPS: [ShipType; 1] = [ShipType {
         Some(SystemId::Weapons),
         None,
         None,
+    ],
+    doors: &[
+        Door::Interior(Cell(1), Cell(6)),
+        Door::Interior(Cell(5), Cell(8)),
+        Door::Interior(Cell(8), Cell(17)),
+        Door::Interior(Cell(9), Cell(12)),
+        Door::Interior(Cell(13), Cell(15)),
+        Door::Exterior(Cell(0), DoorDir::Bottom),
+        Door::Exterior(Cell(16), DoorDir::Top),
     ],
 }];

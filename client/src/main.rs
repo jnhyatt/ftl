@@ -11,14 +11,14 @@ use client::{
 };
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorOpen,
+        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorsOpen,
         SetProjectileWeaponTarget, WeaponPower,
     },
-    intel::{SelfIntel, ShipIntel, WeaponChargeIntel},
+    intel::{InteriorIntel, SelfIntel, ShipIntel, WeaponChargeIntel},
     lobby::ReadyState,
     nav::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
     projectiles::{FiredFrom, RoomTarget, Traversal},
-    ship::{Dead, SystemId, SHIPS},
+    ship::{Dead, Door, DoorDir, SystemId, SHIPS},
     util::round_to_usize,
     RACES,
 };
@@ -28,6 +28,19 @@ use leafwing_input_manager::{
 };
 use rand::{thread_rng, Rng};
 use std::f32::consts::TAU;
+
+const Z_BG: f32 = 0.0;
+const Z_SHIP: f32 = Z_BG + 1.0;
+const Z_BULLETS: f32 = Z_SHIP + Z_SHIELDS + 1.0;
+
+const Z_CELL: f32 = 1.0;
+const Z_ICONS: f32 = 4.0;
+const Z_CREW: f32 = Z_ICONS + 1.0;
+const Z_SHIELDS: f32 = Z_CREW + 1.0;
+
+const Z_AIR: f32 = 1.0;
+const Z_VACUUM: f32 = Z_AIR + 1.0;
+const Z_WALLS: f32 = Z_VACUUM + 1.0;
 
 fn main() {
     App::new()
@@ -75,6 +88,8 @@ fn main() {
                 spawn_projectile_graphics,
                 update_bullet_graphic,
                 update_doors,
+                update_oxygen,
+                update_vacuum,
             ),
         )
         .add_systems(Update, (controls, draw_targets))
@@ -82,7 +97,7 @@ fn main() {
 }
 
 #[derive(Clone, Copy)]
-enum CellTex {
+enum Walls {
     TopRight,
     Top,
     TopLeft,
@@ -94,12 +109,11 @@ enum CellTex {
 }
 
 #[derive(Component)]
-struct Door(usize);
+struct DoorGraphic(usize);
 
 #[derive(Component)]
 struct CrewGraphic(usize);
 
-// Switch this to use crew intel when own ship is intel-based
 fn sync_crew_count(
     self_intel: Query<&SelfIntel>,
     crew: Query<(Entity, &Parent, &CrewGraphic)>,
@@ -130,7 +144,7 @@ fn sync_crew_count(
                 },
                 SpriteBundle {
                     texture: assets.load("crew.png"),
-                    transform: Transform::from_xyz(0.0, 0.0, 2.0),
+                    transform: Transform::from_xyz(0.0, 0.0, Z_CREW),
                     ..default()
                 },
             ))
@@ -154,7 +168,7 @@ fn sync_crew_positions(
         .collect::<Vec<_>>();
     crew_graphics.sort_unstable_by_key(|(_, _, x)| x.0);
     let crew = self_intel.crew.iter();
-    let cell_pos = |&Cell(cell)| ship.cell_positions[cell] * 35.0;
+    let cell_pos = |&Cell(cell)| ship.cell_positions[cell];
     for (crew, (mut graphic, _, _)) in crew.zip(crew_graphics) {
         let crew_z = graphic.translation.z;
         let crew_xy = match &crew.nav_status {
@@ -172,16 +186,16 @@ fn sync_crew_positions(
     }
 }
 
-fn cell_tex(assets: &AssetServer, x: CellTex) -> Handle<Image> {
+fn walls_tex(assets: &AssetServer, x: Walls) -> Handle<Image> {
     assets.load(match x {
-        CellTex::TopRight => "cell-top-right.png",
-        CellTex::Top => "cell-top.png",
-        CellTex::TopLeft => "cell-top-left.png",
-        CellTex::Left => "cell-left.png",
-        CellTex::BottomLeft => "cell-bottom-left.png",
-        CellTex::Bottom => "cell-bottom.png",
-        CellTex::BottomRight => "cell-bottom-right.png",
-        CellTex::Right => "cell-right.png",
+        Walls::TopRight => "walls-corner.png",
+        Walls::TopLeft => "walls-corner.png",
+        Walls::BottomLeft => "walls-corner.png",
+        Walls::BottomRight => "walls-corner.png",
+        Walls::Top => "walls-edge.png",
+        Walls::Left => "walls-edge.png",
+        Walls::Bottom => "walls-edge.png",
+        Walls::Right => "walls-edge.png",
     })
 }
 
@@ -231,21 +245,59 @@ fn handle_cell_click(
     }
 }
 
-fn toggle_door(
-    event: Listener<Pointer<Click>>,
-    ships: Query<&ShipIntel, Without<Dead>>,
-    doors: Query<(&Door, &Parent)>,
-    mut set_door_open: EventWriter<SetDoorOpen>,
-) {
-    let (&Door(door), parent) = doors.get(event.target).unwrap();
-    let Ok(ship) = ships.get(**parent) else {
-        return;
-    };
-    let is_open = ship.basic.doors[door].open;
-    set_door_open.send(SetDoorOpen {
-        door,
-        open: !is_open,
-    });
+#[derive(Bundle)]
+pub struct DoorBundle {
+    door: DoorGraphic,
+    listener: On<Pointer<Click>>,
+    sprite: SpriteBundle,
+}
+
+impl DoorBundle {
+    fn new(ship_type: usize, index: usize) -> Self {
+        let ship = &SHIPS[ship_type];
+        let cells = ship.cell_positions;
+        let door_pos = match ship.doors[index] {
+            Door::Interior(a, b) => (cells[a.0] + cells[b.0]) / 2.0,
+            Door::Exterior(cell, dir) => cells[cell.0] + dir.offset(),
+        };
+        let normal = match ship.doors[index] {
+            Door::Interior(a, b) => cells[b.0] - cells[a.0],
+            Door::Exterior(_, dir) => dir.offset(),
+        }
+        .normalize_or_zero();
+        let door_pos = (door_pos).extend(Z_CREW);
+        let transform =
+            Transform::from_translation(door_pos).with_rotation(Quat::from_mat3(&Mat3 {
+                x_axis: normal.extend(0.0),
+                y_axis: normal.perp().extend(0.0),
+                z_axis: Vec3::Z,
+            }));
+        Self {
+            door: DoorGraphic(index),
+            listener: On::<Pointer<Click>>::run(Self::toggle_door),
+            sprite: SpriteBundle {
+                transform,
+                ..default()
+            },
+        }
+    }
+
+    fn toggle_door(
+        event: Listener<Pointer<Click>>,
+        ships: Query<&ShipIntel, Without<Dead>>,
+        doors: Query<(&DoorGraphic, &Parent)>,
+        mut set_doors_open: EventWriter<SetDoorsOpen>,
+    ) {
+        let (&DoorGraphic(door), parent) = doors.get(event.target).unwrap();
+        let Ok(ship) = ships.get(**parent) else {
+            return;
+        };
+        let is_open = ship.basic.doors[door].open;
+        set_doors_open.send(SetDoorsOpen::Single {
+            door,
+            open: !is_open,
+        });
+    }
 }
 
 fn add_ship_graphic(
@@ -260,9 +312,9 @@ fn add_ship_graphic(
     let my_ship = self_intel.ship;
     for (ship, intel) in &ships {
         let transform = if ship == my_ship {
-            Transform::from_xyz(-200.0, 0.0, -2.0)
+            Transform::from_xyz(-200.0, 0.0, Z_SHIP)
         } else {
-            Transform::from_xyz(400.0, 0.0, -2.0).with_rotation(Quat::from_rotation_z(TAU / 4.0))
+            Transform::from_xyz(400.0, 0.0, Z_SHIP).with_rotation(Quat::from_rotation_z(TAU / 4.0))
         };
 
         commands.entity(ship).insert(SpriteBundle {
@@ -287,7 +339,7 @@ fn add_ship_graphic(
                     Pickable::IGNORE,
                     SpriteBundle {
                         transform: Transform::from_translation(
-                            room_center(intel, room).extend(1.5),
+                            room_center(intel, room).extend(Z_ICONS),
                         )
                         .with_rotation(transform.rotation.inverse()),
                         texture: assets.load(sprite),
@@ -296,36 +348,14 @@ fn add_ship_graphic(
                 )
             })
         };
-        let door = |i| {
-            let [a, b] = SHIPS[intel.basic.ship_type].doors().nth(i).unwrap();
-            let ship = &SHIPS[intel.basic.ship_type];
-            let (a, b) = (
-                ship.cell_positions[a.0] * 35.0 + Vec2::splat(0.1),
-                ship.cell_positions[b.0] * 35.0 + Vec2::splat(0.1),
-            );
-            let door_pos = ((a + b) / 2.0).extend(1.5);
-            let x_axis = (b - a).normalize();
-            let transform =
-                Transform::from_translation(door_pos).with_rotation(Quat::from_mat3(&Mat3 {
-                    x_axis: x_axis.extend(0.0),
-                    y_axis: x_axis.perp().extend(0.0),
-                    z_axis: Vec3::Z,
-                }));
-            (
-                Door(i),
-                On::<Pointer<Click>>::run(toggle_door),
-                SpriteBundle {
-                    transform,
-                    ..default()
-                },
-            )
-        };
+
         commands.entity(ship).with_children(|ship| {
             icon(SystemId::Shields).map(|x| ship.spawn(x));
             icon(SystemId::Engines).map(|x| ship.spawn(x));
             icon(SystemId::Weapons).map(|x| ship.spawn(x));
             icon(SystemId::Oxygen).map(|x| ship.spawn(x));
         });
+
         if ship == my_ship {
             use KeyCode::*;
             use SystemId::*;
@@ -334,6 +364,10 @@ fn add_ship_graphic(
                 .insert(InputManagerBundle::with_map(
                     InputMap::default()
                         .insert(Controls::Autofire, KeyV)
+                        .insert(Controls::AllDoors { open: true }, KeyZ)
+                        .insert(Controls::AllDoors { open: false }, KeyX)
+                        .insert(Controls::SetStations, Slash)
+                        .insert(Controls::GoStations, Enter)
                         .insert(Controls::power_system(Shields), KeyA)
                         .insert(Controls::power_system(Engines), KeyS)
                         .insert(Controls::power_system(Weapons), KeyW)
@@ -353,8 +387,8 @@ fn add_ship_graphic(
                         .build(),
                 ))
                 .with_children(|ship| {
-                    for i in 0..SHIPS[intel.basic.ship_type].doors().count() {
-                        ship.spawn(door(i));
+                    for i in 0..SHIPS[intel.basic.ship_type].doors.len() {
+                        ship.spawn(DoorBundle::new(intel.basic.ship_type, i));
                     }
                 });
         }
@@ -362,37 +396,124 @@ fn add_ship_graphic(
         for (room_index, room) in SHIPS[intel.basic.ship_type].rooms.iter().enumerate() {
             let room_center = SHIPS[intel.basic.ship_type].room_center(room_index);
             for &Cell(cell) in room.cells {
-                let pos = SHIPS[intel.basic.ship_type].cell_positions[cell];
+                let cells = &SHIPS[intel.basic.ship_type].cell_positions;
                 let tex = match (
-                    pos.x.total_cmp(&room_center.x),
-                    pos.y.total_cmp(&room_center.y),
+                    cells[cell].x.total_cmp(&room_center.x),
+                    cells[cell].y.total_cmp(&room_center.y),
                 ) {
-                    (std::cmp::Ordering::Less, std::cmp::Ordering::Less) => CellTex::BottomLeft,
-                    (std::cmp::Ordering::Less, std::cmp::Ordering::Equal) => CellTex::Left,
-                    (std::cmp::Ordering::Less, std::cmp::Ordering::Greater) => CellTex::TopLeft,
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Less) => CellTex::Bottom,
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => unreachable!(),
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Greater) => CellTex::Top,
-                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Less) => CellTex::BottomRight,
-                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Equal) => CellTex::Right,
-                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Greater) => CellTex::TopRight,
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Less) => Walls::BottomLeft,
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Equal) => Walls::Left,
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Greater) => Walls::TopLeft,
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Less) => Walls::Bottom,
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Greater) => Walls::Top,
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Less) => Walls::BottomRight,
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Equal) => Walls::Right,
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Greater) => Walls::TopRight,
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => {
+                        panic!("No center tiles")
+                    }
                 };
-                let cell = commands
+                let wall_rotation = match tex {
+                    Walls::TopRight => Quat::from_rotation_z(TAU * 0.5),
+                    Walls::Top => Quat::from_rotation_z(TAU * 0.5),
+                    Walls::TopLeft => Quat::from_rotation_z(TAU * 0.75),
+                    Walls::Left => Quat::from_rotation_z(TAU * 0.75),
+                    Walls::BottomLeft => Quat::from_rotation_z(TAU * 0.0),
+                    Walls::Bottom => Quat::from_rotation_z(TAU * 0.0),
+                    Walls::BottomRight => Quat::from_rotation_z(TAU * 0.25),
+                    Walls::Right => Quat::from_rotation_z(TAU * 0.25),
+                };
+                let wall_caps: &[DoorDir] = match tex {
+                    Walls::TopRight => &[DoorDir::Right, DoorDir::Top],
+                    Walls::Top => &[DoorDir::Right, DoorDir::Top, DoorDir::Left],
+                    Walls::TopLeft => &[DoorDir::Top, DoorDir::Left],
+                    Walls::Left => &[DoorDir::Top, DoorDir::Left, DoorDir::Bottom],
+                    Walls::BottomLeft => &[DoorDir::Left, DoorDir::Bottom],
+                    Walls::Bottom => &[DoorDir::Left, DoorDir::Bottom, DoorDir::Right],
+                    Walls::BottomRight => &[DoorDir::Bottom, DoorDir::Right],
+                    Walls::Right => &[DoorDir::Bottom, DoorDir::Right, DoorDir::Top],
+                };
+                let cell_graphic = commands
                     .spawn((
                         On::<Pointer<Down>>::run(handle_cell_click),
                         RoomGraphic(room_index),
                         SpriteBundle {
-                            texture: cell_tex(&*assets, tex),
-                            transform: Transform::from_translation(
-                                // Add 0.1 to x and y here to make sure we don't get texels that
-                                // can't decide which pixel they belong to
-                                (pos * 35.0 + Vec2::splat(0.1)).extend(1.0),
-                            ),
+                            texture: assets.load("cell.png"),
+                            transform: Transform::from_translation(cells[cell].extend(Z_CELL)),
                             ..default()
                         },
                     ))
                     .id();
-                commands.entity(ship).add_child(cell);
+                let oxygen = commands
+                    .spawn((
+                        Pickable::IGNORE,
+                        OxygenGraphic(room_index),
+                        SpriteBundle {
+                            texture: assets.load("low-oxygen.png"),
+                            transform: Transform::from_xyz(0.0, 0.0, Z_AIR),
+                            ..default()
+                        },
+                    ))
+                    .id();
+                let vacuum = commands
+                    .spawn((
+                        Pickable::IGNORE,
+                        VacuumGraphic(room_index),
+                        SpriteBundle {
+                            texture: assets.load("vacuum.png"),
+                            transform: Transform::from_xyz(0.0, 0.0, Z_VACUUM),
+                            ..default()
+                        },
+                    ))
+                    .id();
+                let walls = commands
+                    .spawn((
+                        Pickable::IGNORE,
+                        SpriteBundle {
+                            texture: walls_tex(assets.as_ref(), tex),
+                            transform: Transform::from_xyz(0.0, 0.0, Z_WALLS)
+                                .with_rotation(wall_rotation),
+                            ..default()
+                        },
+                    ))
+                    .id();
+
+                let door_positions = SHIPS[intel.basic.ship_type]
+                    .doors
+                    .iter()
+                    .map(|x| match x {
+                        Door::Interior(a, b) => (cells[a.0] + cells[b.0]) / 2.0,
+                        Door::Exterior(cell, dir) => cells[cell.0] + dir.offset(),
+                    })
+                    .collect::<Vec<_>>();
+                for &cap in wall_caps {
+                    if !door_positions.contains(&(cells[cell] + cap.offset())) {
+                        let rotation = match cap {
+                            DoorDir::Right => Quat::from_rotation_z(TAU * 0.0),
+                            DoorDir::Top => Quat::from_rotation_z(TAU * 0.25),
+                            DoorDir::Left => Quat::from_rotation_z(TAU * 0.5),
+                            DoorDir::Bottom => Quat::from_rotation_z(TAU * 0.75),
+                        };
+                        let cap = commands
+                            .spawn((
+                                Pickable::IGNORE,
+                                SpriteBundle {
+                                    texture: assets.load("wall-cap.png"),
+                                    transform: Transform::from_translation(
+                                        cap.offset().extend(Z_WALLS),
+                                    )
+                                    .with_rotation(rotation),
+                                    ..default()
+                                },
+                            ))
+                            .id();
+                        commands.entity(cell_graphic).add_child(cap);
+                    }
+                }
+                commands.entity(ship).add_child(cell_graphic);
+                commands.entity(cell_graphic).add_child(oxygen);
+                commands.entity(cell_graphic).add_child(vacuum);
+                commands.entity(cell_graphic).add_child(walls);
             }
         }
     }
@@ -400,10 +521,10 @@ fn add_ship_graphic(
 
 fn update_doors(
     ships: Query<&ShipIntel>,
-    mut doors: Query<(&Door, &Parent, &mut Handle<Image>)>,
+    mut doors: Query<(&DoorGraphic, &Parent, &mut Handle<Image>)>,
     assets: Res<AssetServer>,
 ) {
-    for (&Door(door), parent, mut sprite) in &mut doors {
+    for (&DoorGraphic(door), parent, mut sprite) in &mut doors {
         let Ok(ship) = ships.get(parent.get()) else {
             return;
         };
@@ -416,14 +537,66 @@ fn update_doors(
     }
 }
 
+fn update_oxygen(
+    ships: Query<&ShipIntel, Without<Dead>>,
+    interiors: Query<&InteriorIntel>,
+    cells: Query<&Parent>,
+    mut oxygen: Query<(&OxygenGraphic, &Parent, &mut Sprite)>,
+) {
+    for (&OxygenGraphic(room), parent, mut sprite) in &mut oxygen {
+        let ship = **cells.get(**parent).unwrap();
+        let Ok(ship) = ships.get(ship) else {
+            continue;
+        };
+        let Ok(interior) = interiors.get(ship.interior) else {
+            continue;
+        };
+        sprite.color.set_a(1.0 - interior.rooms[room].oxygen);
+    }
+}
+
+fn update_vacuum(
+    ships: Query<&ShipIntel, Without<Dead>>,
+    interiors: Query<&InteriorIntel>,
+    cells: Query<&Parent>,
+    mut oxygen: Query<(&VacuumGraphic, &Parent, &mut Visibility)>,
+) {
+    for (&VacuumGraphic(room), parent, mut visibility) in &mut oxygen {
+        let ship = **cells.get(**parent).unwrap();
+        let Ok(ship) = ships.get(ship) else {
+            continue;
+        };
+        let Ok(interior) = interiors.get(ship.interior) else {
+            continue;
+        };
+        *visibility = if interior.rooms[room].oxygen < 0.05 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
 #[derive(Component, Clone, Copy)]
 struct RoomGraphic(usize);
 
+#[derive(Component, Clone, Copy)]
+struct OxygenGraphic(usize);
+
+#[derive(Component, Clone, Copy)]
+struct VacuumGraphic(usize);
+
 fn setup(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.spawn(Camera2dBundle::default());
+    // Lots of sprites have x/y values that have 0 fractional part, and that can make them a little
+    // temperamental in terms of which pixels they decide to occupy. If we shift the camera just a
+    // quarter pixel up and right, this resolves all issues with these sprites by putting their
+    // texels solidly on a pixel, rather than right on the border.
+    commands.spawn(Camera2dBundle {
+        transform: Transform::from_xyz(0.25, 0.25, 0.0),
+        ..default()
+    });
     commands.spawn(SpriteBundle {
         texture: assets.load("background-1.png"),
-        transform: Transform::from_xyz(0.0, 0.0, -3.0),
         ..default()
     });
     commands.spawn((
@@ -573,11 +746,12 @@ fn spawn_projectile_graphics(
         let direction =
             Direction2d::new_unchecked(Vec2::from_angle(thread_rng().gen_range(0.0..=TAU)));
         commands.entity(bullet).insert((
+            Pickable::IGNORE,
+            BulletIncidence(direction),
             SpriteBundle {
                 texture: assets.load("missile-1.png"),
                 ..default()
             },
-            BulletIncidence(direction),
         ));
     }
 }
@@ -597,7 +771,7 @@ fn update_bullet_graphic(
         let (target_intel, target_transform) = targets.get(target.ship).unwrap();
         let origin = ships.get(origin.ship).unwrap().translation.xy(); // TODO weapon mount
         let out_mid = Vec2::X * 1000.0;
-        let room_center = room_center(target_intel, target.room).extend(3.0);
+        let room_center = room_center(target_intel, target.room).extend(0.0);
         let destination =
             (target_transform.rotation * room_center + target_transform.translation).xy();
         let in_mid = destination - 1000.0 * ***incidence;
@@ -607,7 +781,7 @@ fn update_bullet_graphic(
         } else {
             in_mid.lerp(destination, **traversal * 2.0 - 1.0)
         }
-        .extend(3.0);
+        .extend(Z_BULLETS);
         bullet.rotation = if **traversal < 0.5 {
             Quat::IDENTITY
         } else {
@@ -621,6 +795,9 @@ enum Controls {
     SystemPower { dir: PowerDir, system: SystemId },
     WeaponPower { dir: PowerDir, weapon_index: usize },
     Autofire,
+    AllDoors { open: bool },
+    SetStations,
+    GoStations,
 }
 
 impl Controls {
@@ -652,6 +829,7 @@ fn controls(
     mut power: EventWriter<AdjustPower>,
     mut weapon_power: EventWriter<WeaponPower>,
     mut set_autofire: EventWriter<SetAutofire>,
+    mut set_doors_open: EventWriter<SetDoorsOpen>,
     mut commands: Commands,
 ) {
     let Ok(self_intel) = self_intel.get_single() else {
@@ -685,6 +863,11 @@ fn controls(
             Controls::Autofire => {
                 set_autofire.send(SetAutofire(!self_intel.autofire));
             }
+            Controls::AllDoors { open } => {
+                set_doors_open.send(SetDoorsOpen::All { open });
+            }
+            Controls::SetStations => todo!(),
+            Controls::GoStations => todo!(),
         }
     }
 }
@@ -710,7 +893,7 @@ fn draw_targets(
         let world_cursor = cursor * Vec2::new(1.0, -1.0) + Vec2::new(-640.0, 360.0);
         if let Some(targeting) = targeting_weapon {
             let (size, color) = size_color(targeting.0);
-            gizmos.circle(world_cursor.extend(5.0), Direction3d::Z, size, color);
+            gizmos.circle(world_cursor.extend(Z_BULLETS), Direction3d::Z, size, color);
         }
     }
 
@@ -726,5 +909,5 @@ fn draw_targets(
 }
 
 fn room_center(intel: &ShipIntel, room: usize) -> Vec2 {
-    SHIPS[intel.basic.ship_type].room_center(room) * 35.0
+    SHIPS[intel.basic.ship_type].room_center(room)
 }

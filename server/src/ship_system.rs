@@ -122,7 +122,7 @@ pub trait ShipSystem {
         *damage += actual_amount;
         // Compute new max power
         let new_max = *upgrade_level - *damage;
-        // Cancel any current sabotage
+        // If system is destroyed, cancel any in-progress sabotage (but not repair)
         if new_max == 0 {
             *damage_progress = damage_progress.min(0.0);
         }
@@ -140,7 +140,7 @@ pub trait ShipSystem {
         } = self.system_status_mut();
         // Cap max repair to our current damage level
         *damage = damage.saturating_sub(amount);
-        // Cancel any current repair
+        // Cancel any in-progress repair (but not sabotage)
         if *damage == 0 {
             *damage_progress = damage_progress.max(0.0);
         }
