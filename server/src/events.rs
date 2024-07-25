@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetBeamWeaponTarget, SetCrewGoal,
-        SetDoorsOpen, SetProjectileWeaponTarget, WeaponPower,
+        AdjustPower, CrewStations, MoveWeapon, PowerDir, SetAutofire, SetBeamWeaponTarget,
+        SetCrewGoal, SetDoorsOpen, SetProjectileWeaponTarget, WeaponPower,
     },
     ship::{Dead, Door, SHIPS},
 };
@@ -232,6 +232,31 @@ pub fn set_doors_open(
                         door.open = false;
                     }
                 }
+            }
+        }
+    }
+}
+
+pub fn crew_stations(
+    mut events: EventReader<FromClient<CrewStations>>,
+    client_ships: Res<ClientShips>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
+) {
+    for &FromClient { client_id, event } in events.read() {
+        let Some(&client_ship) = client_ships.get(&client_id) else {
+            eprintln!("No ship entry for client {client_id:?}.");
+            continue;
+        };
+        let Ok(mut ship) = ships.get_mut(client_ship) else {
+            eprintln!("Entity {client_ship:?} is not a ship.");
+            continue;
+        };
+        match event {
+            CrewStations::Save => {
+                ship.save_crew_stations();
+            }
+            CrewStations::Return => {
+                ship.crew_return_to_stations();
             }
         }
     }

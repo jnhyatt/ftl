@@ -33,8 +33,8 @@ use common::{
     Crew, CrewTask, PROTOCOL_ID,
 };
 use events::{
-    adjust_power, move_weapon, set_autofire, set_beam_weapon_target, set_crew_goal, set_doors_open,
-    set_projectile_weapon_target, weapon_power,
+    adjust_power, crew_stations, move_weapon, set_autofire, set_beam_weapon_target, set_crew_goal,
+    set_doors_open, set_projectile_weapon_target, weapon_power,
 };
 use ship::ShipState;
 use ship_system::ShipSystem;
@@ -78,6 +78,7 @@ fn main() {
                     set_crew_goal,
                     set_autofire,
                     set_doors_open,
+                    crew_stations,
                 ),
                 (
                     bullet_traversal,
@@ -427,23 +428,26 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     ship.crew.push(Crew {
         race: 0,
         name: "Fish".into(),
-        nav_status: CrewNavStatus::At(Cell(0)),
+        nav_status: CrewNavStatus::At(Cell(2)),
         health: 100.0,
         task: CrewTask::Idle,
+        station: None,
     });
     ship.crew.push(Crew {
         race: 0,
         name: "Virus".into(),
-        nav_status: CrewNavStatus::At(Cell(4)),
+        nav_status: CrewNavStatus::At(Cell(6)),
         health: 100.0,
         task: CrewTask::Idle,
+        station: None,
     });
     ship.crew.push(Crew {
         race: 0,
         name: "Stick".into(),
-        nav_status: CrewNavStatus::At(Cell(6)),
+        nav_status: CrewNavStatus::At(Cell(10)),
         health: 100.0,
         task: CrewTask::Idle,
+        station: None,
     });
 
     let shields = ship.systems.shields.as_mut().unwrap();

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::{
-    nav::{Cell, LineSection, SquareSection},
+    nav::{Cell, LineSection, PathGraph, SquareSection},
     util::{Aabb, IterAvg},
 };
 
@@ -71,6 +71,25 @@ impl ShipType {
 
     pub fn cells(&self) -> impl Iterator<Item = Cell> {
         (0..self.cell_positions.len()).map(|x| Cell(x))
+    }
+
+    pub fn neighbors_of_room(&self, room: usize) -> impl Iterator<Item = usize> {
+        let path_graph = PathGraph {
+            edges: self
+                .path_graph
+                .iter()
+                .map(|&(key, values)| (key, values.iter().copied().collect()))
+                .collect(),
+        };
+        let mut rooms = self.rooms[room]
+            .cells
+            .iter()
+            .flat_map(|&x| path_graph.neighbors_of(x))
+            .map(|x| self.cell_room(x))
+            .collect::<Vec<_>>();
+        rooms.sort();
+        rooms.dedup();
+        rooms.into_iter()
     }
 }
 

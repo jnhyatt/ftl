@@ -1,4 +1,7 @@
-use std::iter::zip;
+use std::{
+    collections::{HashSet, VecDeque},
+    iter::zip,
+};
 
 use bevy::prelude::*;
 use common::{
@@ -40,7 +43,6 @@ impl ShipState {
     pub fn new() -> Self {
         let ship_type = 0;
         let (nav_lines, nav_squares) = SHIPS[ship_type].nav_mesh;
-        let paths = SHIPS[ship_type].path_graph;
         Self {
             ship_type,
             reactor: Reactor::new(0),
@@ -60,7 +62,8 @@ impl ShipState {
                 squares: nav_squares.into(),
             },
             path_graph: PathGraph {
-                edges: paths
+                edges: SHIPS[ship_type]
+                    .path_graph
                     .iter()
                     .map(|&(key, values)| (key, values.iter().copied().collect()))
                     .collect(),
@@ -386,16 +389,28 @@ impl ShipState {
             return;
         }
 
-        let pathing = self.path_graph.pathing_to(target_cell);
-        let Some(path) = self.nav_mesh.find_path(&pathing, crew.current_location()) else {
-            eprintln!(
-                "Can't set crew goal, room {room_index} is unreachable by crew {crew_index}."
-            );
-            return;
+        match Self::path_crew_to(&self.path_graph, &self.nav_mesh, crew, target_cell) {
+            Ok(()) => {}
+            Err(()) => {
+                eprintln!("Can't set crew {crew_index} goal, room {room_index} is unreachable.");
+            }
+        }
+    }
+
+    #[must_use]
+    fn path_crew_to(
+        path_graph: &PathGraph,
+        nav_mesh: &NavMesh,
+        crew: &mut CrewNavStatus,
+        target_cell: Cell,
+    ) -> Result<(), ()> {
+        let pathing = path_graph.pathing_to(target_cell);
+        let Some(path) = nav_mesh.find_path(&pathing, crew.current_location()) else {
+            // Path unreachable by crew
+            return Err(());
         };
         let current_location = match crew {
-            CrewNavStatus::At(cell) => self
-                .nav_mesh
+            CrewNavStatus::At(cell) => nav_mesh
                 .section_with_cells(*cell, path.next_waypoint().unwrap())
                 .unwrap()
                 .to_location(*cell),
@@ -405,6 +420,7 @@ impl ShipState {
             path,
             current_location,
         });
+        Ok(())
     }
 
     pub fn set_autofire(&mut self, autofire: bool) {
@@ -413,5 +429,101 @@ impl ShipState {
             return;
         };
         weapons.autofire = autofire;
+    }
+
+    pub fn save_crew_stations(&mut self) {
+        for crew in &mut self.crew {
+            crew.station = Some(crew.nav_status.occupied_cell());
+        }
+    }
+
+    pub fn crew_return_to_stations(&mut self) {
+        for (i, crew) in self.crew.iter_mut().enumerate() {
+            if let Some(target_cell) = crew.station {
+                match Self::path_crew_to(
+                    &self.path_graph,
+                    &self.nav_mesh,
+                    &mut crew.nav_status,
+                    target_cell,
+                ) {
+                    Ok(()) => {}
+                    Err(()) => {
+                        eprintln!("Can't set crew {i} goal, cell {target_cell:?} is unreachable.");
+                    }
+                }
+            }
+        }
+
+        // At this point we're in a potentially invalid state. If there are crew that don't have
+        // saved stations *and* if those crew are standing in other crew's stations, we could
+        // potentially have multiple crew "occupying" the same cell. To correct this, we find crew
+        // without stations that share a cell with any other crew and find them a new spot.
+        for i in 0..self.crew.len() {
+            let occupied_cell = self.crew[i].nav_status.occupied_cell();
+            if self.crew[i].station.is_none() {
+                let mut not_me = self.crew.iter().enumerate().filter(|(x, _)| *x != i);
+                // If any crew (that aren't me) share my cell, find me a new cell
+                if not_me.any(|(_, x)| x.nav_status.occupied_cell() == occupied_cell) {
+                    let new_cell = self.room_or_nearby(
+                        SHIPS[self.ship_type].cell_room(occupied_cell),
+                        i,
+                        true,
+                    );
+                    Self::path_crew_to(
+                        &self.path_graph,
+                        &self.nav_mesh,
+                        &mut self.crew[i].nav_status,
+                        new_cell,
+                    )
+                    .expect("`room_or_nearby` should only return reachable cells!");
+                }
+            }
+        }
+    }
+
+    /// Return a cell within the specified room. If the room is full, a cell within the nearest room
+    /// that does have space. Crew must be specified so the algorithm doesn't find self-
+    /// obstructions. Finally, caller must specify whether to only consider cells reachable from the
+    /// given room. For moving out of the way of other crew, this should be true. For teleporting
+    /// onto a ship, the can be false. This may strand crew in unconnected "islands" of cells.
+    fn room_or_nearby(&self, room: usize, crew: usize, reachable_only: bool) -> Cell {
+        // Breadth-first search for a room with space, beginning with the specified room
+        let mut frontier = VecDeque::new();
+        frontier.push_back(room);
+        let mut visited = HashSet::new();
+        visited.insert(room);
+
+        while let Some(current) = frontier.pop_front() {
+            for &cell in SHIPS[self.ship_type].rooms[current].cells {
+                if reachable_only {
+                    let pathing = self.path_graph.pathing_to(cell);
+                    let reachable = self
+                        .nav_mesh
+                        .find_path(&pathing, self.crew[crew].nav_status.current_location())
+                        .is_some();
+                    if !reachable {
+                        continue;
+                    }
+                }
+                let cell_clear_besides_me = self
+                    .crew
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i != crew)
+                    .all(|(_, x)| x.nav_status.occupied_cell() != cell);
+                if cell_clear_besides_me {
+                    return cell;
+                }
+            }
+            let next_cells = SHIPS[self.ship_type]
+                .neighbors_of_room(current)
+                .filter(|x| !visited.contains(&x))
+                .collect::<Vec<_>>();
+            for next in next_cells {
+                frontier.push_back(next);
+                visited.insert(next);
+            }
+        }
+        panic!("Ship is overstuffed!");
     }
 }

@@ -26,6 +26,8 @@ impl CrewNavStatus {
         }
     }
 
+    /// This crew's current goal cell. Only one crew can occupy a cell at a time. This crew may or
+    /// may not be anywhere near this cell.
     pub fn occupied_cell(&self) -> Cell {
         match self {
             CrewNavStatus::At(x) => *x,
@@ -33,6 +35,8 @@ impl CrewNavStatus {
         }
     }
 
+    /// This crew's current location, which can be either at a cell or currently traversing a nav
+    /// section. This represents the crew's physical position rather than their goal.
     pub fn current_location(&self) -> CrewLocation {
         match self {
             &CrewNavStatus::At(cell) => CrewLocation::Cell(cell),

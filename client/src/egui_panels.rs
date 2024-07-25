@@ -7,7 +7,7 @@ use bevy_egui::{
 use bevy_replicon::prelude::*;
 use common::{
     compute_dodge_chance,
-    events::{AdjustPower, MoveWeapon, PowerDir, SetAutofire, WeaponPower},
+    events::{AdjustPower, CrewStations, MoveWeapon, PowerDir, SetAutofire, WeaponPower},
     intel::{SelfIntel, ShipIntel, SystemDamageIntel, SystemsIntel, WeaponChargeIntel},
     lobby::{PlayerReady, ReadyState},
     ship::{Dead, SystemId},
@@ -479,7 +479,11 @@ pub fn weapons_panel(
         });
 }
 
-pub fn crew_panel(mut ui: EguiContexts, self_intel: Query<&SelfIntel>) {
+pub fn crew_panel(
+    mut ui: EguiContexts,
+    self_intel: Query<&SelfIntel>,
+    mut crew_stations: EventWriter<CrewStations>,
+) {
     let Ok(self_intel) = self_intel.get_single() else {
         return;
     };
@@ -498,6 +502,14 @@ pub fn crew_panel(mut ui: EguiContexts, self_intel: Query<&SelfIntel>) {
                     ));
                 });
             }
+            ui.horizontal(|ui| {
+                if ui.button("Save stations").clicked() {
+                    crew_stations.send(CrewStations::Save);
+                }
+                if ui.button("Return to stations").clicked() {
+                    crew_stations.send(CrewStations::Return);
+                }
+            });
         });
 }
 

@@ -13,15 +13,15 @@ use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use bullets::{BeamTarget, FiredFrom, NeedsDodgeTest, Progress, RoomTarget, WeaponDamage};
 use events::{
-    AdjustPower, MoveWeapon, SetAutofire, SetBeamWeaponTarget, SetCrewGoal, SetDoorsOpen,
-    SetProjectileWeaponTarget, WeaponPower,
+    AdjustPower, CrewStations, MoveWeapon, SetAutofire, SetBeamWeaponTarget, SetCrewGoal,
+    SetDoorsOpen, SetProjectileWeaponTarget, WeaponPower,
 };
 use intel::{
     CrewIntel, CrewNavIntel, CrewVisionIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel,
     WeaponChargeIntel,
 };
 use lobby::{PlayerReady, ReadyState};
-use nav::CrewNavStatus;
+use nav::{Cell, CrewNavStatus};
 use replicate_resource::ReplicateResExt;
 use serde::{Deserialize, Serialize};
 use ship::{Dead, Room};
@@ -59,6 +59,7 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
     app.add_client_event::<SetDoorsOpen>(ChannelKind::Ordered);
+    app.add_client_event::<CrewStations>(ChannelKind::Ordered);
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Default, Debug)]
@@ -90,6 +91,7 @@ pub struct Crew {
     /// Typical crew have 100 max health. That's why it goes up to 100 instead of from 0 to 1: if
     /// health was measured as a percentage of max health, a `[0, 1]` range would make more sense.
     pub task: CrewTask,
+    pub station: Option<Cell>,
 }
 
 impl Crew {
@@ -110,6 +112,12 @@ impl Crew {
     }
 }
 
+/// Use this as a sort of cache to avoid having to constantly recompute crew actions for simple
+/// things like repairing rooms. Without this, we could easily end up in a situation where we want
+/// to advance a system's repair status but need to check enemy presence, fires, hull breaches, etc.
+/// for the room. In addition to being a lot of friggin repeated work, it also throws lots of
+/// responsibilities onto unrelated systems. Instead, we should compute a crew's current task based
+/// on all those many factors, then simply access that task in all the other systems.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum CrewTask {
     Idle,

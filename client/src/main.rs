@@ -22,7 +22,7 @@ use bevy_replicon_renet::{
     RenetChannelsExt, RepliconRenetClientPlugin,
 };
 use common::{
-    events::{AdjustPower, PowerDir, SetAutofire, SetDoorsOpen, WeaponPower},
+    events::{AdjustPower, CrewStations, PowerDir, SetAutofire, SetDoorsOpen, WeaponPower},
     intel::{SelfIntel, ShipIntel},
     lobby::ReadyState,
     protocol_plugin,
@@ -217,8 +217,8 @@ fn add_ship_controls(
                 .insert(Controls::Autofire, KeyV)
                 .insert(Controls::AllDoors { open: true }, KeyZ)
                 .insert(Controls::AllDoors { open: false }, KeyX)
-                .insert(Controls::SetStations, Slash)
-                .insert(Controls::GoStations, Enter)
+                .insert(Controls::SaveStations, Slash)
+                .insert(Controls::ReturnToStations, Enter)
                 .insert(Controls::power_system(Shields), KeyA)
                 .insert(Controls::power_system(Engines), KeyS)
                 .insert(Controls::power_system(Weapons), KeyW)
@@ -251,8 +251,8 @@ enum Controls {
     WeaponPower { dir: PowerDir, weapon_index: usize },
     Autofire,
     AllDoors { open: bool },
-    SetStations,
-    GoStations,
+    SaveStations,
+    ReturnToStations,
 }
 
 impl Controls {
@@ -284,6 +284,7 @@ fn controls(
     mut weapon_power: EventWriter<WeaponPower>,
     mut set_autofire: EventWriter<SetAutofire>,
     mut set_doors_open: EventWriter<SetDoorsOpen>,
+    mut crew_stations: EventWriter<CrewStations>,
     mut commands: Commands,
 ) {
     let Ok(self_intel) = self_intel.get_single() else {
@@ -316,8 +317,12 @@ fn controls(
             Controls::AllDoors { open } => {
                 set_doors_open.send(SetDoorsOpen::All { open });
             }
-            Controls::SetStations => todo!(),
-            Controls::GoStations => todo!(),
+            Controls::SaveStations => {
+                crew_stations.send(CrewStations::Save);
+            }
+            Controls::ReturnToStations => {
+                crew_stations.send(CrewStations::Return);
+            }
         }
     }
 }

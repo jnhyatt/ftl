@@ -89,6 +89,12 @@ pub enum SetDoorsOpen {
     All { open: bool },
 }
 
+#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum CrewStations {
+    Save,
+    Return,
+}
+
 #[derive(Reflect, Serialize, Deserialize, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PowerDir {
     Request,
