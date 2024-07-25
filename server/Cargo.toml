@@ -9,5 +9,4 @@ bevy_replicon = { workspace = true }
 bevy_replicon_renet = { workspace = true }
 common = { path = "../common" }
 rand = { workspace = true }
-strum = "0.26"
-strum_macros = "0.26"
+strum = { workspace = true }

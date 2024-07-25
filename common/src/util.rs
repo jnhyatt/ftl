@@ -1,6 +1,5 @@
-use std::ops::{Add, Div};
-
-use bevy::math::Vec2;
+use bevy::prelude::*;
+use std::ops::{Add, Div, RangeInclusive};
 
 pub trait MoveToward {
     fn move_toward(self, other: Self, max_delta: f32) -> Self;
@@ -26,6 +25,10 @@ pub fn round_to_usize(x: f32) -> usize {
     x.round() as usize
 }
 
+pub fn inverse_lerp(a: f32, b: f32, x: f32) -> f32 {
+    (x - a) / (b - a)
+}
+
 pub trait IterAvg: Iterator {
     fn average(self) -> Option<Self::Item>
     where
@@ -39,3 +42,79 @@ pub trait IterAvg: Iterator {
 }
 
 impl<I: Iterator> IterAvg for I {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Aabb {
+    bottom_left: Vec2,
+    top_right: Vec2,
+}
+
+impl Aabb {
+    pub fn from_corners(a: Vec2, b: Vec2) -> Self {
+        Self {
+            bottom_left: a.min(b),
+            top_right: a.max(b),
+        }
+    }
+
+    pub fn scale_about_origin(self, factor: Vec2) -> Self {
+        // Use the `from_corners` constructor to ensure negative `factor` values don't invalidate
+        // ordering invariants
+        Self::from_corners(self.bottom_left * factor, self.top_right * factor)
+    }
+
+    pub fn x_range(&self) -> RangeInclusive<f32> {
+        self.bottom_left.x..=self.top_right.x
+    }
+
+    pub fn y_range(&self) -> RangeInclusive<f32> {
+        self.bottom_left.y..=self.top_right.y
+    }
+}
+
+impl std::ops::Sub<Vec2> for Aabb {
+    type Output = Self;
+
+    fn sub(self, rhs: Vec2) -> Self::Output {
+        Self {
+            bottom_left: self.bottom_left - rhs,
+            top_right: self.top_right - rhs,
+        }
+    }
+}
+
+pub fn intersect(
+    lhs: RangeInclusive<f32>,
+    rhs: RangeInclusive<f32>,
+) -> Option<RangeInclusive<f32>> {
+    let start = lhs.start().max(*rhs.start());
+    let end = lhs.end().min(*rhs.end());
+    (start <= end).then_some(start..=end)
+}
+
+pub fn init_resource<R: Resource + FromWorld>(mut commands: Commands) {
+    commands.init_resource::<R>();
+}
+
+pub fn remove_resource<R: Resource>(mut commands: Commands) {
+    commands.remove_resource::<R>();
+}
+
+#[derive(Component)]
+pub struct Disabled<C: Component>(C);
+
+pub fn disable<C: Component>(e: Entity, world: &mut World) {
+    let Some(c) = world.entity_mut(e).take::<C>() else {
+        return;
+    };
+    world.entity_mut(e).insert(Disabled(c));
+}
+
+pub fn enable<C: Component>(e: Entity, world: &mut World) {
+    let Some(Disabled(c)) = world.entity_mut(e).take::<Disabled<C>>() else {
+        return;
+    };
+    if !world.entity(e).contains::<C>() {
+        world.entity_mut(e).insert(c);
+    }
+}

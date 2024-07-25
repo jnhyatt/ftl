@@ -132,8 +132,12 @@ pub fn handle_select_event(
     selected: Query<Entity, With<Selected>>,
     mut selection: Option<ResMut<Selection>>,
     mut commands: Commands,
+    selection_enabled: Option<Res<SelectionEnabled>>,
 ) {
     for ev in events.read() {
+        if selection_enabled.is_none() {
+            continue;
+        }
         match ev {
             &SelectEvent::GrowTo(pos) => {
                 if let Some(selection) = selection.as_mut() {

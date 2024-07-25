@@ -1,14 +1,10 @@
-use bevy::{
-    math::{bounding::Aabb2d, Vec2},
-    prelude::Component,
-    reflect::Reflect,
-};
+use bevy::{math::Vec2, prelude::Component, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::{
     nav::{Cell, LineSection, SquareSection},
-    util::IterAvg,
+    util::{Aabb, IterAvg},
 };
 
 #[derive(Reflect, Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,12 +64,13 @@ impl ShipType {
         self.rooms.iter().position(|x| x.has_cell(cell)).unwrap()
     }
 
-    pub fn cell_aabb(&self, Cell(cell): Cell) -> Aabb2d {
+    pub fn cell_aabb(&self, Cell(cell): Cell) -> Aabb {
         let center = self.cell_positions[cell];
-        Aabb2d {
-            min: center + Vec2::splat(-17.5),
-            max: center + Vec2::splat(17.5),
-        }
+        Aabb::from_corners(center + Vec2::splat(-17.5), center + Vec2::splat(17.5))
+    }
+
+    pub fn cells(&self) -> impl Iterator<Item = Cell> {
+        (0..self.cell_positions.len()).map(|x| Cell(x))
     }
 }
 

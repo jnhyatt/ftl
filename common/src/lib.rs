@@ -1,8 +1,8 @@
+pub mod bullets;
 pub mod events;
 pub mod intel;
 pub mod lobby;
 pub mod nav;
-pub mod projectiles;
 pub mod ship;
 pub mod util;
 pub mod weapon;
@@ -11,9 +11,10 @@ mod replicate_resource;
 
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
+use bullets::{BeamTarget, FiredFrom, NeedsDodgeTest, Progress, RoomTarget, WeaponDamage};
 use events::{
-    AdjustPower, MoveWeapon, SetAutofire, SetCrewGoal, SetDoorsOpen, SetProjectileWeaponTarget,
-    WeaponPower,
+    AdjustPower, MoveWeapon, SetAutofire, SetBeamWeaponTarget, SetCrewGoal, SetDoorsOpen,
+    SetProjectileWeaponTarget, WeaponPower,
 };
 use intel::{
     CrewIntel, CrewNavIntel, CrewVisionIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel,
@@ -21,7 +22,6 @@ use intel::{
 };
 use lobby::{PlayerReady, ReadyState};
 use nav::CrewNavStatus;
-use projectiles::{FiredFrom, NeedsDodgeTest, RoomTarget, Traversal, WeaponDamage};
 use replicate_resource::ReplicateResExt;
 use serde::{Deserialize, Serialize};
 use ship::{Dead, Room};
@@ -42,10 +42,11 @@ pub fn protocol_plugin(app: &mut App) {
     app.replicate::<SystemsIntel>();
 
     // Miscellaneous
-    app.replicate::<Traversal>();
+    app.replicate::<Progress>();
     app.replicate::<WeaponDamage>();
     app.replicate::<NeedsDodgeTest>();
     app.replicate_mapped::<RoomTarget>();
+    app.replicate_mapped::<BeamTarget>();
     app.replicate_mapped::<FiredFrom>();
     app.replicate::<Dead>();
 
@@ -53,6 +54,7 @@ pub fn protocol_plugin(app: &mut App) {
     app.add_client_event::<AdjustPower>(ChannelKind::Ordered);
     app.add_client_event::<WeaponPower>(ChannelKind::Ordered);
     app.add_mapped_client_event::<SetProjectileWeaponTarget>(ChannelKind::Ordered);
+    app.add_mapped_client_event::<SetBeamWeaponTarget>(ChannelKind::Ordered);
     app.add_client_event::<MoveWeapon>(ChannelKind::Ordered);
     app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
     app.add_client_event::<SetAutofire>(ChannelKind::Ordered);

@@ -1,7 +1,7 @@
+mod bullets;
 mod engines;
 mod events;
 mod oxygen;
-mod projectiles;
 mod reactor;
 mod shields;
 mod ship;
@@ -17,23 +17,24 @@ use bevy_replicon_renet::{
     },
     RenetChannelsExt, RepliconRenetServerPlugin,
 };
+use bullets::{
+    beam_damage, bullet_traversal, projectile_collide_hull, projectile_shield_interact,
+    projectile_test_dodge, projectile_timeout, BeamBundle, BeamHits, DelayedBeam,
+    DelayedProjectile, ProjectileBundle, ShieldPierce, TraversalSpeed,
+};
 use common::{
+    bullets::{FiredFrom, NeedsDodgeTest, WeaponDamage},
     intel::{SelfIntel, ShipIntel},
     lobby::{PlayerReady, ReadyState},
     nav::{Cell, CrewNavStatus},
-    projectiles::{FiredFrom, NeedsDodgeTest, WeaponDamage},
     protocol_plugin,
     ship::{Dead, SystemId},
-    weapon::Weapon,
+    weapon::{Weapon, BURST_LASER_MK_I, HEAVY_LASER, PIKE_BEAM},
     Crew, CrewTask, PROTOCOL_ID,
 };
 use events::{
-    adjust_power, move_weapon, set_autofire, set_crew_goal, set_doors_open,
+    adjust_power, move_weapon, set_autofire, set_beam_weapon_target, set_crew_goal, set_doors_open,
     set_projectile_weapon_target, weapon_power,
-};
-use projectiles::{
-    projectile_collide_hull, projectile_shield_interact, projectile_test_dodge, projectile_timeout,
-    projectile_traversal, Delayed, ProjectileBundle, ShieldPierce, TraversalSpeed,
 };
 use ship::ShipState;
 use ship_system::ShipSystem;
@@ -72,19 +73,21 @@ fn main() {
                     adjust_power,
                     weapon_power,
                     set_projectile_weapon_target,
+                    set_beam_weapon_target,
                     move_weapon,
                     set_crew_goal,
                     set_autofire,
                     set_doors_open,
                 ),
                 (
-                    projectile_traversal,
+                    bullet_traversal,
                     projectile_test_dodge,
                     projectile_shield_interact,
                     projectile_collide_hull,
                     projectile_timeout,
+                    beam_damage,
                     update_dead,
-                    (update_ships, fire_projectiles).chain(),
+                    (update_ships, (fire_beams, fire_projectiles)).chain(),
                 )
                     .run_if(not(resource_exists::<ReadyState>)),
                 (update_intel, update_intel_visibility).chain(),
@@ -189,18 +192,34 @@ pub fn update_ships(
         if let Some(shields) = &mut ship.systems.shields {
             shields.charge_shield();
         }
-        if let Some(projectiles) = ship.update_weapons() {
-            for (weapon_index, projectile) in projectiles.enumerate() {
-                for i in 0..projectile.count {
-                    commands.spawn(Delayed {
-                        remaining: Duration::from_millis(300 * i as u64),
-                        weapon: projectile.weapon,
-                        target: projectile.target,
-                        fired_from: FiredFrom {
-                            ship: e,
-                            weapon_index,
-                        },
-                    });
+        if let Some(volleys) = ship.update_weapons() {
+            for (weapon_index, volley) in volleys.enumerate() {
+                match volley {
+                    Some(weapons::Volley::Projectile(volley)) => {
+                        for i in 0..volley.weapon.volley_size {
+                            commands.spawn(DelayedProjectile {
+                                remaining: Duration::from_millis(300 * i as u64),
+                                weapon: volley.weapon,
+                                target: volley.target,
+                                fired_from: FiredFrom {
+                                    ship: e,
+                                    weapon_index,
+                                },
+                            });
+                        }
+                    }
+                    Some(weapons::Volley::Beam(volley)) => {
+                        commands.spawn(DelayedBeam {
+                            remaining: Duration::from_millis(150),
+                            weapon: volley.weapon,
+                            target: volley.target,
+                            fired_from: FiredFrom {
+                                ship: e,
+                                weapon_index,
+                            },
+                        });
+                    }
+                    None => {}
                 }
             }
         }
@@ -212,7 +231,7 @@ pub fn update_ships(
 
 fn fire_projectiles(
     ships: Query<&ShipState>,
-    mut pending: Query<(Entity, &mut Delayed)>,
+    mut pending: Query<(Entity, &mut DelayedProjectile)>,
     mut commands: Commands,
     time: Res<Time>,
 ) {
@@ -224,16 +243,52 @@ fn fire_projectiles(
             if let Some(weapons) = &ship.systems.weapons {
                 if weapons.weapons()[projectile.fired_from.weapon_index].is_powered() {
                     commands.add(move |world: &mut World| {
-                        let info = world.entity_mut(e).take::<Delayed>().unwrap();
+                        let info = world.entity_mut(e).take::<DelayedProjectile>().unwrap();
                         world.spawn(ProjectileBundle {
                             replicated: Replicated,
-                            damage: WeaponDamage(info.weapon.damage),
+                            damage: WeaponDamage(info.weapon.common.damage),
                             target: info.target,
                             fired_from: info.fired_from,
                             traversal_speed: TraversalSpeed(info.weapon.shot_speed),
                             traversal_progress: default(),
                             needs_dodge_test: NeedsDodgeTest,
                             shield_pierce: ShieldPierce(info.weapon.shield_pierce),
+                        });
+                    });
+                }
+            }
+            commands.entity(e).despawn();
+        }
+    }
+}
+
+fn fire_beams(
+    ships: Query<&ShipState>,
+    mut pending: Query<(Entity, &mut DelayedBeam)>,
+    mut commands: Commands,
+    time: Res<Time>,
+) {
+    for (e, mut beam) in &mut pending {
+        if let Some(new_remaining) = beam.remaining.checked_sub(time.delta()) {
+            beam.remaining = new_remaining;
+        } else {
+            let ship = ships.get(beam.fired_from.ship).unwrap();
+            let ship_type = ship.ship_type;
+            if let Some(weapons) = &ship.systems.weapons {
+                // TODO When the player rearranges weapons, we'll want to make sure to adjust the
+                // `weapon_index` for all entities storing it -- delayed and in-world weapon shots,
+                // maybe more?
+                if weapons.weapons()[beam.fired_from.weapon_index].is_powered() {
+                    commands.add(move |world: &mut World| {
+                        let info = world.entity_mut(e).take::<DelayedBeam>().unwrap();
+                        world.spawn(BeamBundle {
+                            replicated: Replicated,
+                            damage: WeaponDamage(info.weapon.common.damage),
+                            target: info.target,
+                            hits: BeamHits::compute(ship_type, info.weapon.length, &info.target),
+                            fired_from: info.fired_from,
+                            traversal_speed: TraversalSpeed(info.weapon.speed),
+                            traversal_progress: default(),
                         });
                     });
                 }
@@ -403,8 +458,9 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     for _ in 0..3 {
         weapons.upgrade();
     }
-    weapons.add_weapon(0, Weapon(2));
-    weapons.add_weapon(1, Weapon(0));
+    weapons.install_weapon(0, Weapon::new(HEAVY_LASER));
+    weapons.install_weapon(1, Weapon::new(BURST_LASER_MK_I));
+    weapons.install_weapon(2, Weapon::new(PIKE_BEAM));
 
     let crew_vision = world.spawn((Replicated, ship.crew_vision_intel())).id();
     let interior = world.spawn((Replicated, ship.interior_intel())).id();

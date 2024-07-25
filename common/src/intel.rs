@@ -27,9 +27,8 @@
 
 use crate::{
     nav::{Cell, NavLocation},
-    projectiles::RoomTarget,
     ship::SystemId,
-    weapon::Weapon,
+    weapon::{WeaponId, WeaponTarget},
     Crew, DoorState,
 };
 use bevy::{ecs::entity::MapEntities, prelude::*};
@@ -133,7 +132,7 @@ pub struct SelfIntel {
     pub max_power: usize,
     pub free_power: usize,
     pub missiles: usize,
-    pub weapon_targets: Vec<Option<RoomTarget>>,
+    pub weapon_targets: Vec<Option<WeaponTarget>>,
     pub crew: Vec<Crew>,
     pub autofire: bool,
     pub oxygen: f32,
@@ -195,8 +194,8 @@ pub struct WeaponsIntel {
 }
 
 /// Basic weapon status for a single weapon, composed of weapon type and power state.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct WeaponIntel {
-    pub weapon: Weapon,
+    pub weapon: WeaponId,
     pub powered: bool,
 }

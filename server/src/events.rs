@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use common::{
     events::{
-        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetCrewGoal, SetDoorsOpen,
-        SetProjectileWeaponTarget, WeaponPower,
+        AdjustPower, MoveWeapon, PowerDir, SetAutofire, SetBeamWeaponTarget, SetCrewGoal,
+        SetDoorsOpen, SetProjectileWeaponTarget, WeaponPower,
     },
     ship::{Dead, Door, SHIPS},
 };
@@ -86,6 +86,37 @@ pub fn set_projectile_weapon_target(
         };
         let targeting_self = target.map(|x| x.ship == client_ship).unwrap_or_default();
         ship.set_projectile_weapon_target(weapon_index, target, targeting_self);
+    }
+}
+
+pub fn set_beam_weapon_target(
+    mut events: EventReader<FromClient<SetBeamWeaponTarget>>,
+    client_ships: Res<ClientShips>,
+    mut ships: Query<&mut ShipState, Without<Dead>>,
+) {
+    for &FromClient {
+        client_id,
+        event: SetBeamWeaponTarget {
+            weapon_index,
+            target,
+        },
+    } in events.read()
+    {
+        let Some(&client_ship) = client_ships.get(&client_id) else {
+            eprintln!("No ship entry for client {client_id:?}.");
+            continue;
+        };
+        let Ok(mut ship) = ships.get_mut(client_ship) else {
+            eprintln!("Entity {client_ship:?} is not a ship.");
+            continue;
+        };
+        if let Some(target) = target {
+            if target.ship == client_ship {
+                eprintln!("Beams cannot target own ship.");
+                continue;
+            }
+        }
+        ship.set_beam_weapon_target(weapon_index, target);
     }
 }
 

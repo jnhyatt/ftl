@@ -3,11 +3,11 @@ use crate::{
     ship_system::{PowerContext, ShipSystem, SystemStatus},
 };
 use common::{
-    projectiles::RoomTarget,
-    weapon::{Weapon, WeaponType},
+    bullets::{BeamTarget, RoomTarget},
+    weapon::{BeamWeapon, ProjectileWeapon, Weapon, WeaponId, WeaponTarget, Weaponlike},
 };
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct Weapons {
     status: SystemStatus,
     entries: Vec<WeaponEntry>,
@@ -18,7 +18,7 @@ impl Weapons {
     pub fn charge_and_fire_weapons<'a>(
         &'a mut self,
         missiles: &'a mut usize,
-    ) -> impl Iterator<Item = ProjectileInfo> + 'a {
+    ) -> impl Iterator<Item = Volley> + 'a {
         self.entries
             .iter_mut()
             .filter_map(|x| x.charge_and_fire(missiles, self.autofire))
@@ -36,7 +36,7 @@ impl Weapons {
         self.entries
             .iter()
             .filter(|x| x.is_powered())
-            .fold(0, |x, y| x + y.weapon.power)
+            .fold(0, |x, y| x + y.weapon().common().power)
     }
 
     pub fn power_weapon(&mut self, index: usize, missiles: usize, reactor: &mut Reactor) {
@@ -49,12 +49,12 @@ impl Weapons {
             eprintln!("Can't power weapon at index {index}, weapon is already powered.");
             return;
         }
-        let requested_power = weapon.weapon.power;
+        let requested_power = weapon.weapon().common().power;
         if used_power + requested_power > self.status.max_power() {
             eprintln!("Can't add power to weapons, system power would exceed upgrade level.");
             return;
         }
-        if weapon.weapon.uses_missile && missiles == 0 {
+        if weapon.weapon().uses_missile() && missiles == 0 {
             eprintln!("Can't power weapon, no missiles in supply.");
             return;
         }
@@ -63,7 +63,7 @@ impl Weapons {
             return;
         };
         reactor.available = new_reactor;
-        weapon.status = WeaponStatus::Powered { target: None };
+        weapon.add_power();
     }
 
     pub fn depower_weapon(&mut self, index: usize, reactor: &mut Reactor) {
@@ -75,8 +75,9 @@ impl Weapons {
             eprintln!("Can't depower weapon at index {index}, weapon is not powered.");
             return;
         }
-        reactor.available += weapon.weapon.power;
-        weapon.status = WeaponStatus::Unpowered;
+
+        reactor.available += weapon.weapon().common().power;
+        weapon.remove_power();
     }
 
     pub fn set_projectile_weapon_target(
@@ -89,10 +90,18 @@ impl Weapons {
             eprintln!("Can't set weapon target, no weapon in slot {weapon_index}.");
             return;
         };
-        weapon.set_target(target, targeting_self);
+        weapon.set_room_target(target, targeting_self);
     }
 
-    pub fn add_weapon(&mut self, index: usize, weapon: Weapon) {
+    pub fn set_beam_weapon_target(&mut self, weapon_index: usize, target: Option<BeamTarget>) {
+        let Some(weapon) = self.entries.get_mut(weapon_index) else {
+            eprintln!("Can't set weapon target, no weapon in slot {weapon_index}.");
+            return;
+        };
+        weapon.set_beam_target(target);
+    }
+
+    pub fn install_weapon(&mut self, index: usize, weapon: Weapon) {
         if index > self.entries.len() {
             eprintln!("Can't add weapon at index {index}, not enough weapons installed.");
             return;
@@ -108,7 +117,7 @@ impl Weapons {
         if self.entries[index].is_powered() {
             self.depower_weapon(index, reactor);
         }
-        Ok(self.entries.remove(index).weapon)
+        Ok(self.entries.remove(index).take())
     }
 
     pub fn move_weapon(&mut self, index: usize, target: usize) {
@@ -156,44 +165,144 @@ impl ShipSystem for Weapons {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct WeaponEntry {
-    pub weapon: Weapon,
-    status: WeaponStatus<RoomTarget>,
-    pub charge: f32,
+#[derive(Debug)]
+pub enum WeaponEntry {
+    Projectile(WeaponStatus<ProjectileWeapon>),
+    Beam(WeaponStatus<BeamWeapon>),
 }
 
 impl WeaponEntry {
     pub fn new(weapon: Weapon) -> Self {
-        Self {
-            weapon,
-            status: WeaponStatus::Unpowered,
-            charge: 0.0,
+        match weapon {
+            Weapon::Projectile(weapon) => Self::Projectile(WeaponStatus {
+                weapon,
+                power_targeting: PowerTargetingStatus::Unpowered,
+                charge: 0.0,
+            }),
+            Weapon::Beam(weapon) => Self::Beam(WeaponStatus {
+                weapon,
+                power_targeting: PowerTargetingStatus::Unpowered,
+                charge: 0.0,
+            }),
+        }
+    }
+
+    pub fn weapon(&self) -> WeaponId {
+        match self {
+            WeaponEntry::Projectile(status) => WeaponId::Projectile(status.weapon.id()),
+            WeaponEntry::Beam(status) => WeaponId::Beam(status.weapon.id()),
         }
     }
 
     pub fn is_powered(&self) -> bool {
-        matches!(self.status, WeaponStatus::Powered { .. })
-    }
-
-    pub fn target(&self) -> Option<RoomTarget> {
-        if let WeaponStatus::Powered { target } = self.status {
-            target
-        } else {
-            None
+        match self {
+            WeaponEntry::Projectile(x) => x.is_powered(),
+            WeaponEntry::Beam(x) => x.is_powered(),
         }
     }
 
-    pub fn set_target(&mut self, new_target: Option<RoomTarget>, targeting_self: bool) {
-        let WeaponStatus::Powered { target } = &mut self.status else {
+    pub fn add_power(&mut self) {
+        match self {
+            WeaponEntry::Projectile(status) => {
+                status.power_targeting = PowerTargetingStatus::Powered { target: None };
+            }
+            WeaponEntry::Beam(status) => {
+                status.power_targeting = PowerTargetingStatus::Powered { target: None };
+            }
+        }
+    }
+
+    pub fn remove_power(&mut self) {
+        match self {
+            WeaponEntry::Projectile(status) => {
+                status.power_targeting = PowerTargetingStatus::Unpowered;
+            }
+            WeaponEntry::Beam(status) => {
+                status.power_targeting = PowerTargetingStatus::Unpowered;
+            }
+        }
+    }
+
+    pub fn charge_and_fire(&mut self, missiles: &mut usize, autofire: bool) -> Option<Volley> {
+        match self {
+            WeaponEntry::Projectile(status) => status
+                .charge_and_fire(missiles, autofire)
+                .map(Volley::Projectile),
+            WeaponEntry::Beam(status) => {
+                status.charge_and_fire(missiles, autofire).map(Volley::Beam)
+            }
+        }
+    }
+
+    pub fn set_room_target(&mut self, new_target: Option<RoomTarget>, targeting_self: bool) {
+        let Self::Projectile(status) = self else {
+            eprintln!("Can't set weapon target to room, weapon is not a projectile weapon.");
+            return;
+        };
+        let PowerTargetingStatus::Powered { target } = &mut status.power_targeting else {
             eprintln!("Can't set weapon target, weapon is unpowered.");
             return;
         };
-        if targeting_self && !self.weapon.can_target_self {
+        if targeting_self && !status.weapon.id().can_target_self {
             eprintln!("Can't set weapon target, weapon cannot target self.");
             return;
         }
         *target = new_target;
+    }
+
+    pub fn set_beam_target(&mut self, new_target: Option<BeamTarget>) {
+        let Self::Beam(status) = self else {
+            eprintln!("Can't set weapon target, weapon is not a beam weapon.");
+            return;
+        };
+        let PowerTargetingStatus::Powered { target } = &mut status.power_targeting else {
+            eprintln!("Can't set weapon target, weapon is unpowered.");
+            return;
+        };
+        *target = new_target;
+    }
+
+    pub fn target(&self) -> Option<WeaponTarget> {
+        match self {
+            WeaponEntry::Projectile(status) => status.target().map(WeaponTarget::Projectile),
+            WeaponEntry::Beam(status) => status.target().map(WeaponTarget::Beam),
+        }
+    }
+
+    pub fn charge(&self) -> f32 {
+        match self {
+            WeaponEntry::Projectile(status) => status.charge,
+            WeaponEntry::Beam(status) => status.charge,
+        }
+    }
+
+    pub fn take(self) -> Weapon {
+        match self {
+            WeaponEntry::Projectile(x) => Weapon::Projectile(x.weapon),
+            WeaponEntry::Beam(x) => Weapon::Beam(x.weapon),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct WeaponStatus<Kind: Weaponlike + 'static> {
+    /// The "physical" weapon. This can't be cloned. It can only be moved around and eventually
+    /// destructed (tossed off into space).
+    pub weapon: Kind,
+    power_targeting: PowerTargetingStatus<Kind>,
+    pub charge: f32,
+}
+
+impl<Kind: Weaponlike + 'static> WeaponStatus<Kind> {
+    pub fn is_powered(&self) -> bool {
+        matches!(self.power_targeting, PowerTargetingStatus::Powered { .. })
+    }
+
+    pub fn target(&self) -> Option<<Kind as Weaponlike>::Target> {
+        match self.power_targeting {
+            PowerTargetingStatus::Unpowered => None,
+            PowerTargetingStatus::Powered { target } => target,
+        }
     }
 
     #[must_use]
@@ -201,22 +310,22 @@ impl WeaponEntry {
         &mut self,
         missiles: &mut usize,
         autofire: bool,
-    ) -> Option<ProjectileInfo> {
-        if let WeaponStatus::Powered { target } = &mut self.status {
-            self.charge = (self.charge + 1.0 / 64.0).min(self.weapon.charge_time);
-            if self.charge == self.weapon.charge_time {
+    ) -> Option<VolleyInner<Kind>> {
+        let weapon = <Kind::Id as Into<WeaponId>>::into(self.weapon.id());
+        if let PowerTargetingStatus::Powered { target } = &mut self.power_targeting {
+            self.charge = (self.charge + 1.0 / 64.0).min(weapon.common().charge_time);
+            if self.charge == weapon.common().charge_time {
                 if let Some(target_room) = target.take() {
                     self.charge = 0.0;
-                    if self.weapon.uses_missile {
+                    if weapon.uses_missile() {
                         *missiles -= 1;
                     }
                     if autofire {
                         *target = Some(target_room);
                     }
-                    return Some(ProjectileInfo {
-                        weapon: *self.weapon,
+                    return Some(VolleyInner {
+                        weapon: self.weapon.id(),
                         target: target_room,
-                        count: self.weapon.volley_size,
                     });
                 }
             }
@@ -228,13 +337,19 @@ impl WeaponEntry {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum WeaponStatus<Target> {
+pub enum PowerTargetingStatus<Kind: Weaponlike> {
     Unpowered,
-    Powered { target: Option<Target> },
+    Powered {
+        target: Option<<Kind as Weaponlike>::Target>,
+    },
 }
 
-pub struct ProjectileInfo {
-    pub weapon: WeaponType,
-    pub target: RoomTarget,
-    pub count: usize,
+pub enum Volley {
+    Projectile(VolleyInner<ProjectileWeapon>),
+    Beam(VolleyInner<BeamWeapon>),
+}
+
+pub struct VolleyInner<Kind: Weaponlike + 'static> {
+    pub weapon: Kind::Id,
+    pub target: Kind::Target,
 }

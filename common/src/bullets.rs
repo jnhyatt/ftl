@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct WeaponDamage(pub usize);
 
 #[derive(Component, Serialize, Deserialize, Default, Deref, DerefMut, Debug, Clone, Copy)]
-pub struct Traversal(pub f32);
+pub struct Progress(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Default, Clone, Copy)]
 pub struct NeedsDodgeTest;
@@ -20,6 +20,19 @@ pub struct RoomTarget {
 }
 
 impl MapEntities for RoomTarget {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.ship = entity_mapper.map_entity(self.ship);
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct BeamTarget {
+    pub ship: Entity,
+    pub start: Vec2,
+    pub dir: Direction2d,
+}
+
+impl MapEntities for BeamTarget {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.ship = entity_mapper.map_entity(self.ship);
     }

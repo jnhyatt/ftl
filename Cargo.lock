@@ -691,8 +691,6 @@ dependencies = [
 [[package]]
 name = "bevy_mod_picking"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e28447667f25f229b69dcf96112d0abcff0034341e4df27e61968349d948698a"
 dependencies = [
  "bevy_app",
  "bevy_core",
@@ -718,8 +716,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_core"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d05ea19fc3b1998d61e13320b737327f5ac5afab1b744dcda62ae52f969c184e"
 dependencies = [
  "bevy_app",
  "bevy_derive",
@@ -736,8 +732,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_egui"
 version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87840580ec9027e9d5a0d9062f39ac85c43c4def08c1d38619dc336e32801f2d"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -751,8 +745,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_highlight"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e9b519416334f6ad0925a6f0d58d7d614a227c036bc2ab8ff8059870796a6b1"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -766,8 +758,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_input"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80f656e01ce324287061983943503cc071d14ad5e371a36273b10dc527f93381"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -784,8 +774,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_selection"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6116e8228d4149ba91eeab74f60a878c4c4e804a8eb3409b43a2f431b82d8674"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -799,8 +787,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_sprite"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "048bb85db2e16af470464baa1cb453a0791d33178d0b14a6263ac9cd3320f953"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -816,8 +802,6 @@ dependencies = [
 [[package]]
 name = "bevy_picking_ui"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3f4957e934fe191fc9f537f7b99db4af39ee9894e5096d9b97ee1a5a5bf59da"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1437,6 +1421,7 @@ dependencies = [
  "is-even",
  "leafwing-input-manager",
  "rand",
+ "strum",
 ]
 
 [[package]]
@@ -2065,7 +2050,7 @@ dependencies = [
  "vec_map",
  "wasm-bindgen",
  "web-sys",
- "windows 0.52.0",
+ "windows 0.54.0",
 ]
 
 [[package]]
@@ -3396,7 +3381,6 @@ dependencies = [
  "common",
  "rand",
  "strum",
- "strum_macros",
 ]
 
 [[package]]
@@ -4281,7 +4265,17 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
 dependencies = [
- "windows-core",
+ "windows-core 0.52.0",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows"
+version = "0.54.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9252e5725dbed82865af151df558e754e4a3c2c30818359eb17465f1346a1b49"
+dependencies = [
+ "windows-core 0.54.0",
  "windows-targets 0.52.6",
 ]
 
@@ -4291,6 +4285,16 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
 dependencies = [
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.54.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12661b9c89351d684a50a8a643ce5f608e20243b9fb84687800163429f161d65"
+dependencies = [
+ "windows-result",
  "windows-targets 0.52.6",
 ]
 
@@ -4314,6 +4318,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "windows-result"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
+dependencies = [
+ "windows-targets 0.52.6",
 ]
 
 [[package]]

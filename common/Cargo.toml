@@ -8,5 +8,5 @@ bevy = { workspace = true }
 bevy_replicon = { workspace = true }
 bevy_replicon_renet = { workspace = true }
 serde = { workspace = true }
-strum = "0.26.2"
-strum_macros = "0.26.4"
+strum = { workspace = true }
+strum_macros = "0.26"

@@ -2,12 +2,12 @@ use std::iter::zip;
 
 use bevy::prelude::*;
 use common::{
+    bullets::{BeamTarget, RoomTarget},
     intel::{
         BasicIntel, CrewVisionIntel, InteriorIntel, RoomIntel, SelfIntel, ShieldIntel,
         SystemsIntel, WeaponChargeIntel, WeaponIntel, WeaponsIntel,
     },
     nav::{Cell, CrewNav, CrewNavStatus, NavMesh, PathGraph},
-    projectiles::RoomTarget,
     ship::{Door, SystemId, SHIPS},
     util::IterAvg,
     Crew, DoorState,
@@ -17,10 +17,10 @@ use strum::IntoEnumIterator;
 use crate::{
     reactor::Reactor,
     ship_system::{PowerContext, ShipSystem, ShipSystems},
-    weapons::ProjectileInfo,
+    weapons::Volley,
 };
 
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Debug)]
 pub struct ShipState {
     pub ship_type: usize,
     pub reactor: Reactor,
@@ -118,7 +118,7 @@ impl ShipState {
                     .weapons()
                     .iter()
                     .map(|x| WeaponIntel {
-                        weapon: x.weapon.clone(),
+                        weapon: x.weapon(),
                         powered: x.is_powered(),
                     })
                     .collect(),
@@ -163,7 +163,7 @@ impl ShipState {
                 .systems
                 .weapons
                 .as_ref()
-                .map(|weapons| weapons.weapons().iter().map(|x| x.charge).collect())
+                .map(|weapons| weapons.weapons().iter().map(|x| x.charge()).collect())
                 .unwrap_or_default(),
         }
     }
@@ -176,13 +176,13 @@ impl ShipState {
         )
     }
 
-    pub fn update_weapons(&mut self) -> Option<impl Iterator<Item = ProjectileInfo> + '_> {
+    pub fn update_weapons(&mut self) -> Option<impl Iterator<Item = Option<Volley>> + '_> {
         self.systems.weapons.as_mut().map(|weapons| {
             let missiles = &mut self.missiles;
             let autofire = weapons.autofire;
             weapons
                 .weapons_mut()
-                .filter_map(move |x| x.charge_and_fire(missiles, autofire))
+                .map(move |x| x.charge_and_fire(missiles, autofire))
         })
     }
 
@@ -338,6 +338,14 @@ impl ShipState {
             return;
         };
         weapons.set_projectile_weapon_target(weapon_index, target, targeting_self);
+    }
+
+    pub fn set_beam_weapon_target(&mut self, weapon_index: usize, target: Option<BeamTarget>) {
+        let Some(weapons) = &mut self.systems.weapons else {
+            eprintln!("Can't set weapon target, weapons system notinstalled.");
+            return;
+        };
+        weapons.set_beam_weapon_target(weapon_index, target);
     }
 
     pub fn move_weapon(&mut self, weapon_index: usize, target_index: usize) {

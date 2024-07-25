@@ -6,7 +6,7 @@ use common::{
     ship::SystemId,
 };
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct ShipSystems {
     pub shields: Option<Shields>,
     pub weapons: Option<Weapons>,

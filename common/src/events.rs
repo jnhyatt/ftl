@@ -1,7 +1,10 @@
 use bevy::{ecs::entity::MapEntities, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{projectiles::RoomTarget, ship::SystemId};
+use crate::{
+    bullets::{BeamTarget, RoomTarget},
+    ship::SystemId,
+};
 
 #[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct AdjustPower {
@@ -44,6 +47,20 @@ pub struct SetProjectileWeaponTarget {
 }
 
 impl MapEntities for SetProjectileWeaponTarget {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        if let Some(target) = &mut self.target {
+            target.map_entities(entity_mapper);
+        }
+    }
+}
+
+#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct SetBeamWeaponTarget {
+    pub weapon_index: usize,
+    pub target: Option<BeamTarget>,
+}
+
+impl MapEntities for SetBeamWeaponTarget {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         if let Some(target) = &mut self.target {
             target.map_entities(entity_mapper);
