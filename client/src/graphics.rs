@@ -180,7 +180,7 @@ pub fn add_ship_graphic(
         };
 
         commands.entity(ship).insert(SpriteBundle {
-            texture: assets.load("potato-bug.png"),
+            texture: assets.load("cyclops.png"),
             transform,
             ..default()
         });

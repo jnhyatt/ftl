@@ -502,14 +502,12 @@ pub fn crew_panel(
                     ));
                 });
             }
-            ui.horizontal(|ui| {
-                if ui.button("Save stations").clicked() {
-                    crew_stations.send(CrewStations::Save);
-                }
-                if ui.button("Return to stations").clicked() {
-                    crew_stations.send(CrewStations::Return);
-                }
-            });
+            if ui.button("Save stations").clicked() {
+                crew_stations.send(CrewStations::Save);
+            }
+            if ui.button("Return to stations").clicked() {
+                crew_stations.send(CrewStations::Return);
+            }
         });
 }
 
