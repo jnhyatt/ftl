@@ -10,16 +10,13 @@ use crate::{
     },
     select::{selection_plugin, SelectEvent, SelectionEnabled},
 };
-use bevy::prelude::*;
+use bevy::{math::vec2, prelude::*};
 use bevy_egui::EguiPlugin;
-use bevy_mod_picking::prelude::*;
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet::{
-    renet::{
-        transport::{ClientAuthentication, NetcodeClientTransport},
-        ConnectionConfig, RenetClient,
-    },
-    RenetChannelsExt, RepliconRenetClientPlugin,
+    netcode::{ClientAuthentication, NetcodeClientTransport},
+    renet::{ConnectionConfig, RenetClient},
+    RenetChannelsExt as _, RepliconRenetPlugins,
 };
 use common::{
     events::{AdjustPower, CrewStations, PowerDir, SetAutofire, SetDoorsOpen, WeaponPower},
@@ -37,11 +34,14 @@ use graphics::{
 };
 use interaction::{left_click_background, start_targeting, PickRoot, TargetingWeapon};
 use leafwing_input_manager::{
-    action_state::ActionState, input_map::InputMap, plugin::InputManagerPlugin, Actionlike,
-    InputManagerBundle,
+    action_state::ActionState,
+    input_map::InputMap,
+    plugin::InputManagerPlugin,
+    prelude::{ButtonlikeChord, ModifierKey},
+    Actionlike, InputControlKind, InputManagerBundle,
 };
 use std::{
-    net::{Ipv6Addr, SocketAddr, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
     time::SystemTime,
 };
 
@@ -66,12 +66,11 @@ fn main() {
             EguiPlugin,
             DefaultPickingPlugins,
             InputManagerPlugin::<Controls>::default(),
-            RepliconPlugins.build().disable::<ServerPlugin>(),
-            RepliconRenetClientPlugin,
+            RepliconPlugins,
+            RepliconRenetPlugins,
             protocol_plugin,
             selection_plugin,
         ))
-        .insert_resource(Msaa::Off)
         .add_systems(Startup, connect_to_server)
         .add_systems(Startup, setup)
         .add_systems(
@@ -106,14 +105,12 @@ fn main() {
         .add_systems(
             Update,
             (
-                init_resource::<SelectionEnabled>.run_if(resource_removed::<TargetingWeapon>()),
+                init_resource::<SelectionEnabled>.run_if(resource_removed::<TargetingWeapon>),
                 remove_resource::<SelectionEnabled>.run_if(resource_added::<TargetingWeapon>),
-                (|pick_root: Query<Entity, With<PickRoot>>, mut commands: Commands| {
-                    commands
-                        .entity(pick_root.single())
-                        .add(enable::<On<Pointer<Down>>>);
+                (|pick_root: Single<Entity, With<PickRoot>>, mut commands: Commands| {
+                    commands.entity(*pick_root).queue(enable::<Observer>);
                 })
-                .run_if(resource_removed::<TargetingWeapon>()),
+                .run_if(resource_removed::<TargetingWeapon>),
             ),
         )
         .run();
@@ -133,11 +130,13 @@ fn connect_to_server(channels: Res<RepliconChannels>, mut commands: Commands) {
         .unwrap();
     let client_id = current_time.as_millis() as u64;
     let server_addr = SocketAddr::new(
-        Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
+        // Ipv6Addr::new(0x2601, 0x680, 0xcd00, 0xbb3, 0x22a0, 0xcc7f, 0x4f4d, 0xa1a7).into(),
+        Ipv4Addr::new(192, 168, 0, 28).into(),
+        // Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
         // Ipv6Addr::LOCALHOST.into(),
         5000,
     );
-    let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))).unwrap();
+    let socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).unwrap();
     let authentication = ClientAuthentication::Unsecure {
         client_id,
         protocol_id: PROTOCOL_ID,
@@ -153,89 +152,97 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     // temperamental in terms of which pixels they decide to occupy. If we shift the camera just a
     // quarter pixel up and right, this resolves all issues with these sprites by putting their
     // texels solidly on a pixel, rather than right on the border.
-    commands.spawn(Camera2dBundle {
-        transform: Transform::from_xyz(0.25, 0.25, 0.0),
+    commands.spawn((Camera2d, Msaa::Off, Transform::from_xyz(0.25, 0.25, 0.0)));
+    commands.spawn(Sprite {
+        image: assets.load("background-1.png"),
         ..default()
     });
-    commands.spawn(SpriteBundle {
-        texture: assets.load("background-1.png"),
-        ..default()
-    });
-    commands.spawn((
-        On::<Pointer<Down>>::run(|event: Listener<Pointer<Down>>, mut commands: Commands| {
+    commands
+        .spawn((
+            PickingBehavior {
+                should_block_lower: false,
+                is_hoverable: true,
+            },
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+        ))
+        .observe(|event: Trigger<Pointer<Down>>, mut commands: Commands| {
             if event.button == PointerButton::Secondary {
                 commands.remove_resource::<TargetingWeapon>();
             }
-        }),
-        Pickable {
-            should_block_lower: false,
-            is_hoverable: true,
-        },
-        NodeBundle {
-            style: Style {
+        });
+    commands
+        .spawn((
+            PickingBehavior {
+                should_block_lower: false,
+                is_hoverable: true,
+            },
+            Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
                 ..default()
             },
-            ..default()
-        },
-    ));
-    commands.spawn((
-        PickRoot,
-        On::<Pointer<Down>>::run(left_click_background),
-        On::<Pointer<Up>>::send_event::<SelectEvent>(),
-        On::<Pointer<Drag>>::send_event::<SelectEvent>(),
-        Pickable {
-            should_block_lower: false,
-            is_hoverable: true,
-        },
-        NodeBundle {
-            style: Style {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
+        ))
+        // .observe(left_click_background)
+        .observe(
+            |event: Trigger<Pointer<Up>>, mut select_events: EventWriter<SelectEvent>| {
+                if event.button == PointerButton::Primary {
+                    select_events.send(SelectEvent::Complete);
+                }
+                select_events.send(SelectEvent::GrowTo(
+                    event.pointer_location.position * vec2(1.0, -1.0) + vec2(-640.0, 360.0),
+                ));
             },
-            ..default()
-        },
-    ));
+        )
+        .observe(
+            |event: Trigger<Pointer<Drag>>, mut select_events: EventWriter<SelectEvent>| {
+                if event.button == PointerButton::Primary {
+                    select_events.send(SelectEvent::GrowTo(
+                        event.pointer_location.position * vec2(1.0, -1.0) + vec2(-640.0, 360.0),
+                    ));
+                }
+            },
+        );
+    commands.spawn((PickRoot, Observer::new(left_click_background)));
 }
 
 fn add_ship_controls(
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<Entity, Without<Sprite>>,
     mut commands: Commands,
 ) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
     let my_ship = self_intel.ship;
     for ship in &ships {
         let input_map = if ship == my_ship {
             use KeyCode::*;
             use SystemId::*;
+            let shift = |key| ButtonlikeChord::modified(ModifierKey::Shift, key);
             InputMap::default()
-                .insert(Controls::Autofire, KeyV)
-                .insert(Controls::AllDoors { open: true }, KeyZ)
-                .insert(Controls::AllDoors { open: false }, KeyX)
-                .insert(Controls::SaveStations, Slash)
-                .insert(Controls::ReturnToStations, Enter)
-                .insert(Controls::power_system(Shields), KeyA)
-                .insert(Controls::power_system(Engines), KeyS)
-                .insert(Controls::power_system(Weapons), KeyW)
-                .insert(Controls::power_system(Oxygen), KeyF)
-                .insert(Controls::power_weapon(0), Digit1)
-                .insert(Controls::power_weapon(1), Digit2)
-                .insert(Controls::power_weapon(2), Digit3)
-                .insert(Controls::power_weapon(3), Digit4)
-                .insert_chord(Controls::depower_system(Shields), [ShiftLeft, KeyA])
-                .insert_chord(Controls::depower_system(Engines), [ShiftLeft, KeyS])
-                .insert_chord(Controls::depower_system(Weapons), [ShiftLeft, KeyW])
-                .insert_chord(Controls::depower_system(Oxygen), [ShiftLeft, KeyF])
-                .insert_chord(Controls::depower_weapon(0), [ShiftLeft, Digit1])
-                .insert_chord(Controls::depower_weapon(1), [ShiftLeft, Digit2])
-                .insert_chord(Controls::depower_weapon(2), [ShiftLeft, Digit3])
-                .insert_chord(Controls::depower_weapon(3), [ShiftLeft, Digit4])
-                .build()
+                .with(Controls::Autofire, KeyV)
+                .with(Controls::AllDoors { open: true }, KeyZ)
+                .with(Controls::AllDoors { open: false }, KeyX)
+                .with(Controls::SaveStations, Slash)
+                .with(Controls::ReturnToStations, Enter)
+                .with(Controls::power_system(Shields), KeyA)
+                .with(Controls::power_system(Engines), KeyS)
+                .with(Controls::power_system(Weapons), KeyW)
+                .with(Controls::power_system(Oxygen), KeyF)
+                .with(Controls::power_weapon(0), Digit1)
+                .with(Controls::power_weapon(1), Digit2)
+                .with(Controls::power_weapon(2), Digit3)
+                .with(Controls::power_weapon(3), Digit4)
+                .with(Controls::depower_system(Shields), shift(KeyA))
+                .with(Controls::depower_system(Shields), shift(KeyA))
+                .with(Controls::depower_system(Engines), shift(KeyS))
+                .with(Controls::depower_system(Weapons), shift(KeyW))
+                .with(Controls::depower_system(Oxygen), shift(KeyF))
+                .with(Controls::depower_weapon(0), shift(Digit1))
+                .with(Controls::depower_weapon(1), shift(Digit2))
+                .with(Controls::depower_weapon(2), shift(Digit3))
+                .with(Controls::depower_weapon(3), shift(Digit4))
         } else {
             default()
         };
@@ -245,7 +252,7 @@ fn add_ship_controls(
     }
 }
 
-#[derive(Actionlike, Reflect, Clone, Hash, PartialEq, Eq)]
+#[derive(Reflect, Debug, Clone, Hash, PartialEq, Eq)]
 enum Controls {
     SystemPower { dir: PowerDir, system: SystemId },
     WeaponPower { dir: PowerDir, weapon_index: usize },
@@ -253,6 +260,12 @@ enum Controls {
     AllDoors { open: bool },
     SaveStations,
     ReturnToStations,
+}
+
+impl Actionlike for Controls {
+    fn input_control_kind(&self) -> InputControlKind {
+        InputControlKind::Button
+    }
 }
 
 impl Controls {
@@ -306,7 +319,7 @@ fn controls(
                     continue;
                 }
                 if weapons.weapons[weapon_index].powered && dir == PowerDir::Request {
-                    commands.add(start_targeting(weapon_index));
+                    commands.queue(start_targeting(weapon_index));
                 } else {
                     weapon_power.send(WeaponPower { dir, weapon_index });
                 }

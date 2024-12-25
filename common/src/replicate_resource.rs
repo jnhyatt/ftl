@@ -1,29 +1,30 @@
 use bevy::prelude::*;
-use bevy_replicon::{
-    prelude::{has_authority, ChannelKind},
-    server::events::{SendMode, ServerEventAppExt, ToClients},
-};
+use bevy_replicon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub trait ReplicateResExt {
-    fn replicate_resource<R: Resource + Serialize + DeserializeOwned + Clone>(&mut self);
+    fn replicate_resource<R: Resource + Serialize + DeserializeOwned + Clone>(
+        &mut self,
+    ) -> &mut Self;
 }
 
 impl ReplicateResExt for App {
-    fn replicate_resource<R: Resource + Serialize + DeserializeOwned + Clone>(&mut self) {
-        self.add_server_event::<UpdateResource<R>>(ChannelKind::Ordered);
-        self.add_systems(
-            PostUpdate,
-            (
-                send_changed_resource::<R>.run_if(resource_exists::<R>),
-                send_removed_resource::<R>.run_if(resource_removed::<R>()),
+    fn replicate_resource<R: Resource + Serialize + DeserializeOwned + Clone>(
+        &mut self,
+    ) -> &mut Self {
+        self.add_server_event::<UpdateResource<R>>(ChannelKind::Ordered)
+            .add_systems(
+                PostUpdate,
+                (
+                    send_changed_resource::<R>.run_if(resource_exists::<R>),
+                    send_removed_resource::<R>.run_if(resource_removed::<R>),
+                )
+                    .run_if(server_or_singleplayer),
             )
-                .run_if(has_authority),
-        );
-        self.add_systems(
-            PreUpdate,
-            replicate_resource::<R>.run_if(not(has_authority)),
-        );
+            .add_systems(
+                PreUpdate,
+                replicate_resource::<R>.run_if(not(server_or_singleplayer)),
+            )
     }
 }
 

@@ -1,7 +1,6 @@
 use std::f32::consts::TAU;
 
-use bevy::{prelude::*, window::PrimaryWindow};
-use bevy_mod_picking::prelude::*;
+use bevy::{color::palettes, prelude::*};
 use common::{
     bullets::{BeamTarget, FiredFrom, Progress, RoomTarget},
     intel::{InteriorIntel, SelfIntel, ShipIntel},
@@ -75,15 +74,15 @@ pub fn sync_crew_count(
             .spawn((
                 CrewGraphic(x),
                 Selectable { radius: 10.0 },
-                Pickable {
+                PickingBehavior {
                     should_block_lower: false,
                     is_hoverable: true,
                 },
-                SpriteBundle {
-                    texture: assets.load("crew.png"),
-                    transform: Transform::from_xyz(0.0, 0.0, Z_CREW),
+                Sprite {
+                    image: assets.load("crew.png"),
                     ..default()
                 },
+                Transform::from_xyz(0.0, 0.0, Z_CREW),
             ))
             .id();
         commands.entity(self_intel.ship).add_child(new_crew_member);
@@ -136,7 +135,7 @@ fn walls_tex(assets: &AssetServer, x: Walls) -> Handle<Image> {
     })
 }
 
-fn door_sprite(ship_type: usize, index: usize) -> SpriteBundle {
+fn door(ship_type: usize, index: usize) -> Transform {
     let ship = &SHIPS[ship_type];
     let cells = ship.cell_positions;
     let door_pos = match ship.doors[index] {
@@ -148,16 +147,11 @@ fn door_sprite(ship_type: usize, index: usize) -> SpriteBundle {
         Door::Exterior(_, dir) => dir.offset(),
     }
     .normalize_or_zero();
-    let door_pos = (door_pos).extend(Z_CREW);
-    let transform = Transform::from_translation(door_pos).with_rotation(Quat::from_mat3(&Mat3 {
+    Transform::from_translation(door_pos.extend(Z_CREW)).with_rotation(Quat::from_mat3(&Mat3 {
         x_axis: normal.extend(0.0),
         y_axis: normal.perp().extend(0.0),
         z_axis: Vec3::Z,
-    }));
-    SpriteBundle {
-        transform,
-        ..default()
-    }
+    }))
 }
 
 pub fn add_ship_graphic(
@@ -179,11 +173,13 @@ pub fn add_ship_graphic(
             Transform::from_xyz(400.0, 0.0, Z_SHIP).with_rotation(Quat::from_rotation_z(TAU / 4.0))
         };
 
-        commands.entity(ship).insert(SpriteBundle {
-            texture: assets.load("cyclops.png"),
+        commands.entity(ship).insert((
+            Sprite {
+                image: assets.load("cyclops.png"),
+                ..default()
+            },
             transform,
-            ..default()
-        });
+        ));
 
         let icon = |system| {
             let sprite = match system {
@@ -198,17 +194,17 @@ pub fn add_ship_graphic(
                 .position(|x| *x == Some(system));
             room.map(|room| {
                 (
-                    Pickable::IGNORE,
-                    SpriteBundle {
-                        transform: Transform::from_translation(
-                            SHIPS[intel.basic.ship_type]
-                                .room_center(room)
-                                .extend(Z_ICONS),
-                        )
-                        .with_rotation(transform.rotation.inverse()),
-                        texture: assets.load(sprite),
+                    PickingBehavior::IGNORE,
+                    Sprite {
+                        image: assets.load(sprite),
                         ..default()
                     },
+                    Transform::from_translation(
+                        SHIPS[intel.basic.ship_type]
+                            .room_center(room)
+                            .extend(Z_ICONS),
+                    )
+                    .with_rotation(transform.rotation.inverse()),
                 )
             })
         };
@@ -220,9 +216,13 @@ pub fn add_ship_graphic(
 
         commands.entity(ship).with_children(|ship| {
             for i in 0..SHIPS[intel.basic.ship_type].doors.len() {
-                let mut e = ship.spawn((DoorGraphic(i), door_sprite(intel.basic.ship_type, i)));
+                let mut e = ship.spawn((
+                    DoorGraphic(i),
+                    Sprite::default(),
+                    door(intel.basic.ship_type, i),
+                ));
                 if is_me {
-                    e.insert(On::<Pointer<Click>>::run(toggle_door));
+                    e.observe(toggle_door);
                 }
             }
         });
@@ -269,57 +269,57 @@ pub fn add_ship_graphic(
                 };
                 let cell_graphic = commands
                     .spawn((
-                        On::<Pointer<Down>>::run(handle_cell_click),
+                        // On::<Pointer<Down>>::run(handle_cell_click),
                         RoomGraphic(room_index),
-                        SpriteBundle {
-                            texture: assets.load("cell.png"),
-                            transform: Transform::from_translation(cells[cell].extend(Z_CELL)),
+                        Sprite {
+                            image: assets.load("cell.png"),
                             ..default()
                         },
+                        Transform::from_translation(cells[cell].extend(Z_CELL)),
                     ))
+                    .observe(handle_cell_click)
                     .id();
                 let oxygen = commands
                     .spawn((
-                        Pickable::IGNORE,
+                        PickingBehavior::IGNORE,
                         OxygenGraphic(room_index),
-                        SpriteBundle {
-                            texture: assets.load("low-oxygen.png"),
-                            transform: Transform::from_xyz(0.0, 0.0, Z_AIR),
+                        Sprite {
+                            image: assets.load("low-oxygen.png"),
                             ..default()
                         },
+                        Transform::from_xyz(0.0, 0.0, Z_AIR),
                     ))
                     .id();
                 let vacuum = commands
                     .spawn((
-                        Pickable::IGNORE,
+                        PickingBehavior::IGNORE,
                         VacuumGraphic(room_index),
-                        SpriteBundle {
-                            texture: assets.load("vacuum.png"),
-                            transform: Transform::from_xyz(0.0, 0.0, Z_VACUUM),
+                        Sprite {
+                            image: assets.load("vacuum.png"),
                             ..default()
                         },
+                        Transform::from_xyz(0.0, 0.0, Z_VACUUM),
                     ))
                     .id();
                 let walls = commands
                     .spawn((
-                        Pickable::IGNORE,
-                        SpriteBundle {
-                            texture: walls_tex(assets.as_ref(), tex),
-                            transform: Transform::from_xyz(0.0, 0.0, Z_WALLS)
-                                .with_rotation(wall_rotation),
+                        PickingBehavior::IGNORE,
+                        Sprite {
+                            image: walls_tex(assets.as_ref(), tex),
                             ..default()
                         },
+                        Transform::from_xyz(0.0, 0.0, Z_WALLS).with_rotation(wall_rotation),
                     ))
                     .id();
                 let no_intel = commands
                     .spawn((
-                        Pickable::IGNORE,
+                        PickingBehavior::IGNORE,
                         NoIntelGraphic,
-                        SpriteBundle {
-                            texture: assets.load("no-intel.png"),
-                            transform: Transform::from_xyz(0.0, 0.0, Z_NO_INTEL),
+                        Sprite {
+                            image: assets.load("no-intel.png"),
                             ..default()
                         },
+                        Transform::from_xyz(0.0, 0.0, Z_NO_INTEL),
                     ))
                     .id();
 
@@ -341,15 +341,13 @@ pub fn add_ship_graphic(
                         };
                         let cap = commands
                             .spawn((
-                                Pickable::IGNORE,
-                                SpriteBundle {
-                                    texture: assets.load("wall-cap.png"),
-                                    transform: Transform::from_translation(
-                                        cap.offset().extend(Z_WALLS),
-                                    )
-                                    .with_rotation(rotation),
+                                PickingBehavior::IGNORE,
+                                Sprite {
+                                    image: assets.load("wall-cap.png"),
                                     ..default()
                                 },
+                                Transform::from_translation(cap.offset().extend(Z_WALLS))
+                                    .with_rotation(rotation),
                             ))
                             .id();
                         commands.entity(cell_graphic).add_child(cap);
@@ -367,7 +365,7 @@ pub fn add_ship_graphic(
 
 pub fn update_doors(
     ships: Query<&ShipIntel>,
-    mut doors: Query<(&DoorGraphic, &Parent, &mut Handle<Image>)>,
+    mut doors: Query<(&DoorGraphic, &Parent, &mut Sprite)>,
     assets: Res<AssetServer>,
 ) {
     for (&DoorGraphic(door), parent, mut sprite) in &mut doors {
@@ -375,7 +373,7 @@ pub fn update_doors(
             return;
         };
         let door = ship.basic.doors[door];
-        *sprite = match door.open {
+        sprite.image = match door.open {
             _ if door.broken() => assets.load("door-broken.png"),
             false => assets.load("door-closed.png"),
             true => assets.load("door-open.png"),
@@ -397,7 +395,7 @@ pub fn update_oxygen(
         let Ok(interior) = interiors.get(ship.interior) else {
             continue;
         };
-        sprite.color.set_a(1.0 - interior.rooms[room].oxygen);
+        sprite.color.set_alpha(1.0 - interior.rooms[room].oxygen);
     }
 }
 
@@ -454,7 +452,7 @@ pub struct VacuumGraphic(usize);
 pub struct NoIntelGraphic;
 
 #[derive(Component, Deref)]
-pub struct BulletIncidence(Direction2d);
+pub struct BulletIncidence(Dir2);
 
 pub fn spawn_projectile_graphics(
     bullets: Query<Entity, (With<RoomTarget>, Without<Sprite>)>,
@@ -463,9 +461,9 @@ pub fn spawn_projectile_graphics(
 ) {
     for bullet in &bullets {
         commands.entity(bullet).insert((
-            Pickable::IGNORE,
-            SpriteBundle {
-                texture: assets.load("missile-1.png"),
+            PickingBehavior::IGNORE,
+            Sprite {
+                image: assets.load("missile-1.png"),
                 ..default()
             },
         ));
@@ -477,8 +475,7 @@ pub fn set_bullet_incidence(
     mut commands: Commands,
 ) {
     for bullet in &bullets {
-        let direction =
-            Direction2d::new_unchecked(Vec2::from_angle(thread_rng().gen_range(0.0..=TAU)));
+        let direction = Dir2::new_unchecked(Vec2::from_angle(thread_rng().gen_range(0.0..=TAU)));
         commands.entity(bullet).insert(BulletIncidence(direction));
     }
 }
@@ -564,22 +561,19 @@ pub fn draw_beams(
         let in_mid = target_ship.transform_point(in_mid.extend(Z_BULLETS));
         let beam_end = target_ship.transform_point(hit_point.extend(Z_BULLETS));
 
-        gizmos.line(beam_start, out_mid, Color::RED);
-        gizmos.line(in_mid, beam_end, Color::RED);
+        gizmos.line(beam_start, out_mid, palettes::basic::RED);
+        gizmos.line(in_mid, beam_end, palettes::basic::RED);
     }
 }
 
 pub fn draw_targets(
-    windows: Query<&Window, With<PrimaryWindow>>,
-    self_intel: Query<&SelfIntel>,
+    window: Single<&Window>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<&ShipIntel>,
     targets: Query<(&ShipIntel, &Transform)>,
     targeting_weapon: Option<Res<TargetingWeapon>>,
     mut gizmos: Gizmos,
 ) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
     let Ok(ship) = ships.get(self_intel.ship) else {
         return;
     };
@@ -587,12 +581,12 @@ pub fn draw_targets(
         return;
     };
 
-    if let Some(cursor) = windows.get_single().ok().and_then(|x| x.cursor_position()) {
+    if let Some(cursor) = window.cursor_position() {
         let world_cursor = cursor * Vec2::new(1.0, -1.0) + Vec2::new(-640.0, 360.0);
         match targeting_weapon.as_ref().map(|x| x.as_ref()) {
             Some(&TargetingWeapon::PickStart { weapon_index }) => {
                 let (size, color) = size_color(weapon_index);
-                gizmos.circle(world_cursor.extend(Z_BULLETS), Direction3d::Z, size, color);
+                gizmos.circle(world_cursor.extend(Z_BULLETS), size, color);
             }
             Some(&TargetingWeapon::PickDir {
                 weapon_index,
@@ -604,7 +598,7 @@ pub fn draw_targets(
                 };
                 let beam_length = weapon.length;
                 let (_, color) = size_color(weapon_index);
-                let dir = Direction2d::new(world_cursor - start).unwrap_or(Direction2d::Y);
+                let dir = Dir2::new(world_cursor - start).unwrap_or(Dir2::Y);
                 let end = start + *dir * beam_length;
                 gizmos.line(start.extend(Z_BULLETS), end.extend(Z_BULLETS), color);
             }
@@ -625,7 +619,7 @@ pub fn draw_targets(
                     let pos =
                         target_transform.rotation * room_location + target_transform.translation;
                     let (size, color) = size_color(i);
-                    gizmos.circle(pos, Direction3d::Z, size, color);
+                    gizmos.circle(pos, size, color);
                 }
                 WeaponTarget::Beam(target) => {
                     let WeaponId::Beam(weapon) = weapons.weapons[i].weapon else {

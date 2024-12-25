@@ -1,5 +1,5 @@
 use crate::interaction::start_targeting;
-use bevy::prelude::*;
+use bevy::{color::palettes::basic::*, prelude::*};
 use bevy_egui::{
     egui::{self, Color32, RichText, Ui},
     EguiContexts,
@@ -467,7 +467,7 @@ pub fn weapons_panel(
                     );
                     weapon_charge_ui(ui, weapon_charges.levels[weapon_index], weapon.weapon);
                     if ui.button("Target").clicked() {
-                        commands.add(start_targeting(weapon_index));
+                        commands.queue(start_targeting(weapon_index));
                     }
                 });
             }
@@ -511,20 +511,20 @@ pub fn crew_panel(
         });
 }
 
-pub fn size_color(index: usize) -> (f32, Color) {
+pub fn size_color(index: usize) -> (f32, Srgba) {
     match index {
-        0 => (24.0, Color::RED),
-        1 => (28.0, Color::YELLOW),
-        2 => (32.0, Color::GREEN),
-        3 => (36.0, Color::PURPLE),
+        0 => (24.0, RED),
+        1 => (28.0, YELLOW),
+        2 => (32.0, LIME),
+        3 => (36.0, PURPLE),
         _ => panic!("Index out of range"),
     }
 }
 
-fn to_egui_color(color: Color) -> Color32 {
+fn to_egui_color(color: Srgba) -> Color32 {
     Color32::from_rgb(
-        (color.r() * 255.0) as u8,
-        (color.g() * 255.0) as u8,
-        (color.b() * 255.0) as u8,
+        (color.red * 255.0) as u8,
+        (color.green * 255.0) as u8,
+        (color.blue * 255.0) as u8,
     )
 }

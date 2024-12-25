@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, time::Duration};
 
-use bevy::{prelude::*, utils::FloatOrd};
-use bevy_replicon::core::Replicated;
+use bevy::{math::FloatOrd, prelude::*};
+use bevy_replicon::core::replication::Replicated;
 use common::{
     bullets::{BeamTarget, FiredFrom, NeedsDodgeTest, Progress, RoomTarget, WeaponDamage},
     compute_dodge_chance,

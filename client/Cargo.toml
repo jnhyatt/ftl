@@ -8,22 +8,17 @@ bevy = { workspace = true, features = [
     "bevy_gizmos",
     "bevy_sprite",
     "bevy_ui",
+    "bevy_window",
     "bevy_winit",
     "default_font",
     "png",
     "serialize",
 ] }
-bevy_egui = "0.27.0"
-bevy_replicon = { workspace = true }
-bevy_replicon_renet = { workspace = true }
-bevy_mod_picking = { path = "../../../bevy_mod_picking", default-features = false, features = [
-    "backend_bevy_ui",
-    "backend_egui",
-    "backend_sprite",
-    "debug",
-] }
+bevy_egui = "0.31"
+bevy_replicon = { workspace = true, features = ["client"] }
+bevy_replicon_renet = { workspace = true, features = ["renet_netcode"] }
 common = { path = "../common" }
-is-even = "1.0.0"
-leafwing-input-manager = "0.13"
+is-even = "1"
+leafwing-input-manager = "0.16"
 rand = { workspace = true }
 strum = { workspace = true }

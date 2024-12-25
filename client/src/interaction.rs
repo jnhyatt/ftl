@@ -1,5 +1,4 @@
-use bevy::{ecs::system::Command, prelude::*};
-use bevy_mod_picking::prelude::*;
+use bevy::{ecs::world::Command, prelude::*};
 use common::{
     bullets::{BeamTarget, RoomTarget},
     events::{SetBeamWeaponTarget, SetCrewGoal, SetDoorsOpen, SetProjectileWeaponTarget},
@@ -47,7 +46,8 @@ pub fn start_targeting(weapon_index: usize) -> impl Command {
         let pick_root = world
             .query_filtered::<Entity, With<PickRoot>>()
             .single(world);
-        disable::<On<Pointer<Down>>>(pick_root, world);
+        // Disable pointer down
+        disable::<Observer>(pick_root, world);
     }
 }
 
@@ -67,7 +67,7 @@ pub enum TargetingWeapon {
 pub struct PickRoot;
 
 pub fn left_click_background(
-    event: Listener<Pointer<Down>>,
+    event: Trigger<Pointer<Down>>,
     targeting_weapon: Option<Res<TargetingWeapon>>,
     ships: Query<&GlobalTransform>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -77,12 +77,15 @@ pub fn left_click_background(
 ) {
     if let PointerButton::Primary = event.button {
         let (camera, camera_transform) = cameras.single();
-        let Some(world_cursor) =
+        let Ok(world_cursor) =
             camera.viewport_to_world_2d(camera_transform, event.pointer_location.position)
         else {
             return;
         };
         if let Some(targeting_weapon) = targeting_weapon.as_ref().map(|x| x.as_ref()) {
+            // Since this system will only be called when pointer down responses can target
+            // arbitrary positions (as opposed to rooms), we can assume that the targeting weapon is
+            // a beam weapon that already has a start position
             let &TargetingWeapon::PickDir {
                 weapon_index,
                 ship,
@@ -98,7 +101,7 @@ pub fn left_click_background(
             let world_to_ship = ship_transform.affine().inverse();
             let start = world_to_ship.transform_point(start.extend(0.0)).xy();
             let end = world_to_ship.transform_point(world_cursor.extend(0.0)).xy();
-            let dir = Direction2d::new(end - start).unwrap_or(Direction2d::Y);
+            let dir = Dir2::new(end - start).unwrap_or(Dir2::Y);
 
             beam_targeting.send(SetBeamWeaponTarget {
                 weapon_index,
@@ -111,13 +114,13 @@ pub fn left_click_background(
 }
 
 pub fn handle_cell_click(
-    event: Listener<Pointer<Down>>,
+    event: Trigger<Pointer<Down>>,
     weapon: Option<Res<TargetingWeapon>>,
     self_intel: Query<&SelfIntel>,
     ships: Query<&ShipIntel>,
     cells: Query<(&RoomGraphic, &Parent)>,
     selected_crew: Query<&CrewGraphic, With<Selected>>,
-    pick_root: Query<Entity, With<PickRoot>>,
+    pick_root: Single<Entity, With<PickRoot>>,
     mut projectile_targeting: EventWriter<SetProjectileWeaponTarget>,
     mut set_crew_goal: EventWriter<SetCrewGoal>,
     mut commands: Commands,
@@ -146,9 +149,7 @@ pub fn handle_cell_click(
                     return;
                 }
             }
-            commands
-                .entity(pick_root.single())
-                .add(enable::<On<Pointer<Down>>>);
+            commands.entity(*pick_root).queue(enable::<Observer>);
             match weapon {
                 WeaponId::Projectile(_) => {
                     projectile_targeting.send(SetProjectileWeaponTarget {
@@ -177,7 +178,7 @@ pub fn handle_cell_click(
 }
 
 pub fn toggle_door(
-    event: Listener<Pointer<Click>>,
+    event: Trigger<Pointer<Click>>,
     ships: Query<&ShipIntel, Without<Dead>>,
     doors: Query<(&DoorGraphic, &Parent)>,
     mut set_doors_open: EventWriter<SetDoorsOpen>,

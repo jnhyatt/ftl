@@ -1,9 +1,9 @@
 use bevy::{
+    color::palettes::basic::*,
     ecs::system::QueryLens,
     math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume},
     prelude::*,
 };
-use bevy_mod_picking::prelude::*;
 
 pub fn selection_plugin(app: &mut App) {
     app.add_event::<SelectEvent>();
@@ -15,8 +15,7 @@ pub fn selection_plugin(app: &mut App) {
             highlight_selected,
             handle_select_event,
             draw_selection.run_if(resource_exists::<Selection>),
-            deselect_all
-                .run_if(resource_removed::<SelectionEnabled>().or_else(on_event::<DeselectAll>())),
+            deselect_all.run_if(resource_removed::<SelectionEnabled>.or(on_event::<DeselectAll>)),
         )
             .chain(),
     );
@@ -24,40 +23,8 @@ pub fn selection_plugin(app: &mut App) {
 
 #[derive(Event, Clone, Copy, Debug)]
 pub enum SelectEvent {
-    Ignore,
     GrowTo(Vec2),
     Complete,
-}
-
-impl From<ListenerInput<Pointer<Down>>> for SelectEvent {
-    fn from(value: ListenerInput<Pointer<Down>>) -> Self {
-        if value.button != PointerButton::Primary {
-            return Self::Ignore;
-        }
-        Self::GrowTo(
-            value.pointer_location.position * Vec2::new(1.0, -1.0) + Vec2::new(-640.0, 360.0),
-        )
-    }
-}
-
-impl From<ListenerInput<Pointer<Drag>>> for SelectEvent {
-    fn from(value: ListenerInput<Pointer<Drag>>) -> Self {
-        if value.button != PointerButton::Primary {
-            return Self::Ignore;
-        }
-        Self::GrowTo(
-            value.pointer_location.position * Vec2::new(1.0, -1.0) + Vec2::new(-640.0, 360.0),
-        )
-    }
-}
-
-impl From<ListenerInput<Pointer<Up>>> for SelectEvent {
-    fn from(value: ListenerInput<Pointer<Up>>) -> Self {
-        if value.button != PointerButton::Primary {
-            return Self::Ignore;
-        }
-        Self::Complete
-    }
 }
 
 /// Marks an entity as selectable. Selectable entities have a bounding circle in the XY plane with
@@ -80,7 +47,7 @@ pub struct Selection {
 
 pub fn draw_selection(selection: Res<Selection>, mut gizmos: Gizmos) {
     let &Selection { start, end } = selection.as_ref();
-    gizmos.rect_2d((start + end) / 2.0, 0.0, end - start, Color::GREEN);
+    gizmos.rect_2d((start + end) / 2.0, end - start, LIME);
 }
 
 pub fn highlight_selected(
@@ -88,7 +55,7 @@ pub fn highlight_selected(
     mut gizmos: Gizmos,
 ) {
     for (transform, &Selectable { radius }) in &selected {
-        gizmos.circle_2d(transform.translation().xy(), radius, Color::GREEN);
+        gizmos.circle_2d(transform.translation().xy(), radius, LIME);
     }
 }
 
@@ -169,7 +136,6 @@ pub fn handle_select_event(
                     }
                 }
             }
-            SelectEvent::Ignore => {}
         }
     }
 }

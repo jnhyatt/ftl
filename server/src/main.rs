@@ -11,11 +11,9 @@ mod weapons;
 use bevy::{app::ScheduleRunnerPlugin, prelude::*};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet::{
-    renet::{
-        transport::{NetcodeServerTransport, ServerAuthentication, ServerConfig},
-        ConnectionConfig, RenetServer,
-    },
-    RenetChannelsExt, RepliconRenetServerPlugin,
+    netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig},
+    renet::{ConnectionConfig, RenetServer},
+    RenetChannelsExt, RepliconRenetPlugins,
 };
 use bullets::{
     beam_damage, bullet_traversal, projectile_collide_hull, projectile_shield_interact,
@@ -40,7 +38,7 @@ use ship::ShipState;
 use ship_system::ShipSystem;
 use std::{
     collections::HashMap,
-    net::{Ipv6Addr, SocketAddr, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
     time::{Duration, SystemTime},
 };
 use strum::IntoEnumIterator;
@@ -49,14 +47,11 @@ fn main() {
     App::new()
         .add_plugins((
             MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(5))),
-            RepliconPlugins
-                .build()
-                .disable::<ClientPlugin>()
-                .set(ServerPlugin {
-                    visibility_policy: VisibilityPolicy::Blacklist,
-                    ..default()
-                }),
-            RepliconRenetServerPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                visibility_policy: VisibilityPolicy::Blacklist,
+                ..default()
+            }),
+            RepliconRenetPlugins,
             protocol_plugin,
         ))
         .add_systems(Startup, (setup, reset_gamestate))
@@ -110,7 +105,7 @@ fn setup(channels: Res<RepliconChannels>, mut commands: Commands) {
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
-    let public_addr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 5000);
+    let public_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 5000);
     let socket = UdpSocket::bind(public_addr).unwrap();
     let server_config = ServerConfig {
         current_time,
@@ -243,7 +238,7 @@ fn fire_projectiles(
             let ship = ships.get(projectile.fired_from.ship).unwrap();
             if let Some(weapons) = &ship.systems.weapons {
                 if weapons.weapons()[projectile.fired_from.weapon_index].is_powered() {
-                    commands.add(move |world: &mut World| {
+                    commands.queue(move |world: &mut World| {
                         let info = world.entity_mut(e).take::<DelayedProjectile>().unwrap();
                         world.spawn(ProjectileBundle {
                             replicated: Replicated,
@@ -280,7 +275,7 @@ fn fire_beams(
                 // `weapon_index` for all entities storing it -- delayed and in-world weapon shots,
                 // maybe more?
                 if weapons.weapons()[beam.fired_from.weapon_index].is_powered() {
-                    commands.add(move |world: &mut World| {
+                    commands.queue(move |world: &mut World| {
                         let info = world.entity_mut(e).take::<DelayedBeam>().unwrap();
                         world.spawn(BeamBundle {
                             replicated: Replicated,
@@ -300,7 +295,7 @@ fn fire_beams(
 }
 
 fn update_intel_visibility(
-    mut clients: ResMut<ConnectedClients>,
+    mut clients: ResMut<ReplicatedClients>,
     client_ships: Res<ClientShips>,
     self_intel: Query<(Entity, &SelfIntel)>,
     ships: Query<(Entity, &ShipIntel)>,
@@ -387,13 +382,13 @@ fn handle_connections(mut server_events: EventReader<ServerEvent>, mut commands:
             ServerEvent::ClientConnected { client_id } => {
                 println!("New client {client_id:?} connected.");
                 let client_id = *client_id;
-                commands.add(move |world: &mut World| {
+                commands.queue(move |world: &mut World| {
                     spawn_player(world, client_id);
                 });
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 println!("Client {client_id:?} disconnected: {reason}");
-                commands.add(reset_gamestate);
+                commands.queue(reset_gamestate);
             }
         }
     }
@@ -407,10 +402,11 @@ fn reset_gamestate(world: &mut World) {
 
     let clients = world
         .resource::<ConnectedClients>()
-        .iter_client_ids()
+        .iter()
+        .copied()
         .collect::<Vec<_>>();
     for client in clients {
-        spawn_player(world, client);
+        spawn_player(world, client.id());
     }
 }
 

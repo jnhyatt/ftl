@@ -1,11 +1,10 @@
-use bevy::{math::Vec2, prelude::Component, reflect::Reflect};
-use serde::{Deserialize, Serialize};
-use strum_macros::EnumIter;
-
 use crate::{
     nav::{Cell, LineSection, PathGraph, SquareSection},
     util::{Aabb, IterAvg},
 };
+use bevy::{math::Vec2, prelude::Component, reflect::Reflect};
+use serde::{Deserialize, Serialize};
+use strum::EnumIter;
 
 #[derive(Reflect, Serialize, Deserialize, EnumIter, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemId {

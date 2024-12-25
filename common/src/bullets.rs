@@ -29,7 +29,7 @@ impl MapEntities for RoomTarget {
 pub struct BeamTarget {
     pub ship: Entity,
     pub start: Vec2,
-    pub dir: Direction2d,
+    pub dir: Dir2,
 }
 
 impl MapEntities for BeamTarget {
