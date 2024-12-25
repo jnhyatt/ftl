@@ -6,7 +6,10 @@ edition = "2021"
 [dependencies]
 bevy = { workspace = true }
 bevy_replicon = { workspace = true, features = ["server"] }
-bevy_replicon_renet = { workspace = true, features = ["server"] }
+bevy_replicon_renet = { workspace = true, features = [
+    "server",
+    "renet_netcode",
+] }
 common = { path = "../common" }
 rand = { workspace = true }
 strum = { workspace = true }

@@ -16,7 +16,10 @@ bevy = { workspace = true, features = [
 ] }
 bevy_egui = "0.31"
 bevy_replicon = { workspace = true, features = ["client"] }
-bevy_replicon_renet = { workspace = true, features = ["renet_netcode"] }
+bevy_replicon_renet = { workspace = true, features = [
+    "client",
+    "renet_netcode",
+] }
 common = { path = "../common" }
 is-even = "1"
 leafwing-input-manager = "0.16"

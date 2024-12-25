@@ -38,7 +38,7 @@ use ship::ShipState;
 use ship_system::ShipSystem;
 use std::{
     collections::HashMap,
-    net::{Ipv4Addr, SocketAddr, UdpSocket},
+    net::{Ipv4Addr, UdpSocket},
     time::{Duration, SystemTime},
 };
 use strum::IntoEnumIterator;
@@ -94,26 +94,22 @@ fn main() {
 }
 
 fn setup(channels: Res<RepliconChannels>, mut commands: Commands) {
-    let server_channels_config = channels.get_server_configs();
-    let client_channels_config = channels.get_client_configs();
-    commands.insert_resource(RenetServer::new(ConnectionConfig {
-        server_channels_config,
-        client_channels_config,
-        ..default()
-    }));
-
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
-    let public_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 5000);
-    let socket = UdpSocket::bind(public_addr).unwrap();
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 5000)).unwrap();
     let server_config = ServerConfig {
         current_time,
         max_clients: 2,
         protocol_id: PROTOCOL_ID,
         authentication: ServerAuthentication::Unsecure,
-        public_addresses: vec![public_addr],
+        public_addresses: vec![],
     };
+    commands.insert_resource(RenetServer::new(ConnectionConfig {
+        server_channels_config: channels.get_server_configs(),
+        client_channels_config: channels.get_client_configs(),
+        ..default()
+    }));
     commands.insert_resource(NetcodeServerTransport::new(server_config, socket).unwrap());
 }
 

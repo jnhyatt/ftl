@@ -116,15 +116,6 @@ fn main() {
 }
 
 fn connect_to_server(channels: Res<RepliconChannels>, mut commands: Commands) {
-    println!("Connecting to server");
-    let server_channels_config = channels.get_server_configs();
-    let client_channels_config = channels.get_client_configs();
-    commands.insert_resource(RenetClient::new(ConnectionConfig {
-        server_channels_config,
-        client_channels_config,
-        ..default()
-    }));
-
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
@@ -137,8 +128,14 @@ fn connect_to_server(channels: Res<RepliconChannels>, mut commands: Commands) {
         server_addr,
         user_data: None,
     };
-    let transport = NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
-    commands.insert_resource(transport);
+    commands.insert_resource(RenetClient::new(ConnectionConfig {
+        server_channels_config: channels.get_server_configs(),
+        client_channels_config: channels.get_client_configs(),
+        ..default()
+    }));
+    commands.insert_resource(
+        NetcodeClientTransport::new(current_time, authentication, socket).unwrap(),
+    );
 }
 
 fn setup(mut commands: Commands, assets: Res<AssetServer>) {
