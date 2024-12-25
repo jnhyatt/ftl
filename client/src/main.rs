@@ -64,7 +64,6 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
             EguiPlugin,
-            DefaultPickingPlugins,
             InputManagerPlugin::<Controls>::default(),
             RepliconPlugins,
             RepliconRenetPlugins,
@@ -117,6 +116,7 @@ fn main() {
 }
 
 fn connect_to_server(channels: Res<RepliconChannels>, mut commands: Commands) {
+    println!("Connecting to server");
     let server_channels_config = channels.get_server_configs();
     let client_channels_config = channels.get_client_configs();
     commands.insert_resource(RenetClient::new(ConnectionConfig {
@@ -129,13 +129,7 @@ fn connect_to_server(channels: Res<RepliconChannels>, mut commands: Commands) {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
     let client_id = current_time.as_millis() as u64;
-    let server_addr = SocketAddr::new(
-        // Ipv6Addr::new(0x2601, 0x680, 0xcd00, 0xbb3, 0x22a0, 0xcc7f, 0x4f4d, 0xa1a7).into(),
-        Ipv4Addr::new(192, 168, 0, 28).into(),
-        // Ipv6Addr::new(0x2a01, 0x4ff, 0x1f0, 0x9230, 0x0, 0x0, 0x0, 0x1).into(),
-        // Ipv6Addr::LOCALHOST.into(),
-        5000,
-    );
+    let server_addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 5000);
     let socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).unwrap();
     let authentication = ClientAuthentication::Unsecure {
         client_id,
@@ -186,7 +180,6 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
                 ..default()
             },
         ))
-        // .observe(left_click_background)
         .observe(
             |event: Trigger<Pointer<Up>>, mut select_events: EventWriter<SelectEvent>| {
                 if event.button == PointerButton::Primary {
