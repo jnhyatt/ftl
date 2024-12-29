@@ -4,7 +4,7 @@ use common::{
     events::{SetBeamWeaponTarget, SetCrewGoal, SetDoorsOpen, SetProjectileWeaponTarget},
     intel::{SelfIntel, ShipIntel},
     ship::Dead,
-    util::{disable, enable},
+    util::{disable_observer, enable_observer},
     weapon::WeaponId,
 };
 
@@ -47,7 +47,7 @@ pub fn start_targeting(weapon_index: usize) -> impl Command {
             .query_filtered::<Entity, With<PickRoot>>()
             .single(world);
         // Disable pointer down
-        disable::<Observer>(pick_root, world);
+        disable_observer(pick_root, world);
     }
 }
 
@@ -149,7 +149,7 @@ pub fn handle_cell_click(
                     return;
                 }
             }
-            commands.entity(*pick_root).queue(enable::<Observer>);
+            commands.entity(*pick_root).queue(enable_observer);
             match weapon {
                 WeaponId::Projectile(_) => {
                     projectile_targeting.send(SetProjectileWeaponTarget {

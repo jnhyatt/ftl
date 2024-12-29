@@ -24,7 +24,7 @@ use common::{
     lobby::ReadyState,
     protocol_plugin,
     ship::SystemId,
-    util::{enable, init_resource, remove_resource},
+    util::{enable_observer, init_resource, remove_resource},
     PROTOCOL_ID,
 };
 use graphics::{
@@ -107,7 +107,7 @@ fn main() {
                 init_resource::<SelectionEnabled>.run_if(resource_removed::<TargetingWeapon>),
                 remove_resource::<SelectionEnabled>.run_if(resource_added::<TargetingWeapon>),
                 (|pick_root: Single<Entity, With<PickRoot>>, mut commands: Commands| {
-                    commands.entity(*pick_root).queue(enable::<Observer>);
+                    commands.entity(*pick_root).queue(enable_observer);
                 })
                 .run_if(resource_removed::<TargetingWeapon>),
             ),

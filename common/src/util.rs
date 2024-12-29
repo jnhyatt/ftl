@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{ecs::observer::ObserverState, prelude::*};
 use std::ops::{Add, Div, RangeInclusive};
 
 pub trait MoveToward {
@@ -100,21 +100,22 @@ pub fn remove_resource<R: Resource>(mut commands: Commands) {
     commands.remove_resource::<R>();
 }
 
-#[derive(Component)]
-pub struct Disabled<C: Component>(C);
-
-pub fn disable<C: Component>(e: Entity, world: &mut World) {
-    let Some(c) = world.entity_mut(e).take::<C>() else {
+pub fn disable_observer(e: Entity, world: &mut World) {
+    let mut e = world.entity_mut(e);
+    let Some(observer) = e.take() else {
         return;
     };
-    world.entity_mut(e).insert(Disabled(c));
+    e.remove::<ObserverState>();
+    e.insert(DisabledObserver(observer));
 }
 
-pub fn enable<C: Component>(e: Entity, world: &mut World) {
-    let Some(Disabled(c)) = world.entity_mut(e).take::<Disabled<C>>() else {
+#[derive(Component)]
+struct DisabledObserver(Observer);
+
+pub fn enable_observer(e: Entity, world: &mut World) {
+    let mut e = world.entity_mut(e);
+    let Some(DisabledObserver(observer)) = e.take() else {
         return;
     };
-    if !world.entity(e).contains::<C>() {
-        world.entity_mut(e).insert(c);
-    }
+    e.insert(observer);
 }
