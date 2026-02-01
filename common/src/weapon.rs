@@ -1,9 +1,10 @@
 use crate::bullets::{BeamTarget, RoomTarget};
-use bevy::ecs::entity::{EntityMapper, MapEntities};
+use bevy::ecs::entity::MapEntities;
 use serde::{Deserialize, Serialize};
 
 /// This represents an "physical" weapon. It is non-clonable because new instances must be produced
-/// from a store or event, for example. A ship can mount these,
+/// from a store or event, for example. They can be in a store inventory, ship storage or a
+/// hardpoint.
 pub enum Weapon {
     Projectile(ProjectileWeapon),
     Beam(BeamWeapon),
@@ -25,6 +26,10 @@ impl Weapon {
     }
 }
 
+/// This represents the same thing as [`Weapon`], but fires projectiles. Honestly, the "projectile
+/// vs beam" split needs to happen, but this might be the wrong place for it.
+///
+/// The wrapped `usize` is the index into the [`PROJECTILE_WEAPONS`] array.
 pub struct ProjectileWeapon(usize);
 
 impl Into<WeaponId> for ProjectileWeaponId {
@@ -174,19 +179,11 @@ impl WeaponId {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(MapEntities, Serialize, Deserialize, Debug)]
 pub enum WeaponTarget {
-    Projectile(RoomTarget),
-    Beam(BeamTarget),
-}
+    Projectile(#[entities] RoomTarget),
 
-impl MapEntities for WeaponTarget {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        match self {
-            WeaponTarget::Projectile(target) => target.map_entities(entity_mapper),
-            WeaponTarget::Beam(target) => target.map_entities(entity_mapper),
-        }
-    }
+    Beam(#[entities] BeamTarget),
 }
 
 const PROJECTILE_WEAPONS: [ProjectileStats; 3] = [

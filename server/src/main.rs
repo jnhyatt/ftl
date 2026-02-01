@@ -8,8 +8,20 @@ mod ship;
 mod ship_system;
 mod weapons;
 
-use bevy::{app::ScheduleRunnerPlugin, prelude::*};
-use bevy_replicon::prelude::*;
+use bevy::{
+    app::ScheduleRunnerPlugin,
+    ecs::{query::QueryFilter, system::RunSystemOnce},
+    prelude::*,
+    remote::{http::RemoteHttpPlugin, RemotePlugin},
+    state::app::StatesPlugin,
+};
+use bevy_replicon::{
+    prelude::*,
+    server::visibility::{
+        client_visibility::ClientVisibility, filters_mask::FilterBit, registry::FilterRegistry,
+    },
+    shared::replication::registry::ReplicationRegistry,
+};
 use bevy_replicon_renet::{
     netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig},
     renet::{ConnectionConfig, RenetServer},
@@ -17,13 +29,13 @@ use bevy_replicon_renet::{
 };
 use bullets::{
     beam_damage, bullet_traversal, projectile_collide_hull, projectile_shield_interact,
-    projectile_test_dodge, projectile_timeout, BeamBundle, BeamHits, DelayedBeam,
-    DelayedProjectile, ProjectileBundle, ShieldPierce, TraversalSpeed,
+    projectile_test_dodge, projectile_timeout, BeamBundle, DelayedBeam, DelayedProjectile,
+    ProjectileBundle, ShieldPierce, TraversalSpeed,
 };
 use common::{
     bullets::{FiredFrom, NeedsDodgeTest, WeaponDamage},
-    intel::{SelfIntel, ShipIntel},
-    lobby::{PlayerReady, ReadyState},
+    intel::{InteriorIntel, SelfIntel, ShipIntel, SystemsIntel, WeaponChargeIntel},
+    lobby::{PlayerReady, Ready, ReadyState},
     nav::{Cell, CrewNavStatus},
     protocol_plugin,
     ship::{Dead, SystemId},
@@ -37,7 +49,6 @@ use events::{
 use ship::ShipState;
 use ship_system::ShipSystem;
 use std::{
-    collections::HashMap,
     net::{Ipv4Addr, UdpSocket},
     time::{Duration, SystemTime},
 };
@@ -47,23 +58,24 @@ fn main() {
     App::new()
         .add_plugins((
             MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(5))),
-            RepliconPlugins.set(ServerPlugin {
-                visibility_policy: VisibilityPolicy::Blacklist,
-                ..default()
-            }),
+            #[cfg(debug_assertions)]
+            (
+                RemotePlugin::default(),
+                RemoteHttpPlugin::default().with_port(15703),
+            ),
+            StatesPlugin,
+            RepliconPlugins,
             RepliconRenetPlugins,
             protocol_plugin,
         ))
+        .init_resource::<ReadyState>()
+        .init_resource::<VisibilityScopes>()
         .add_systems(Startup, (setup, reset_gamestate))
         .add_systems(
             FixedUpdate,
             (
-                handle_connections,
-                player_ready,
-                (
-                    handle_player_ready,
-                    (start_game, advance_startup_countdown).run_if(resource_exists::<ReadyState>),
-                ),
+                handle_player_ready,
+                (start_game, advance_startup_countdown).run_if(resource_exists::<ReadyState>),
                 (
                     adjust_power,
                     weapon_power,
@@ -90,6 +102,8 @@ fn main() {
             )
                 .chain(),
         )
+        .add_observer(handle_connection)
+        .add_observer(handle_disconnection)
         .run();
 }
 
@@ -106,69 +120,55 @@ fn setup(channels: Res<RepliconChannels>, mut commands: Commands) {
         public_addresses: vec![],
     };
     commands.insert_resource(RenetServer::new(ConnectionConfig {
-        server_channels_config: channels.get_server_configs(),
-        client_channels_config: channels.get_client_configs(),
+        server_channels_config: channels.server_configs(),
+        client_channels_config: channels.client_configs(),
         ..default()
     }));
     commands.insert_resource(NetcodeServerTransport::new(server_config, socket).unwrap());
 }
 
-pub fn player_ready(
-    mut events: EventReader<FromClient<PlayerReady>>,
+pub fn handle_player_ready(
+    mut events: MessageReader<FromClient<PlayerReady>>,
     mut ready_state: Option<ResMut<ReadyState>>,
+    mut commands: Commands,
 ) {
     // Early out if there are no ready notifications, otherwise we'll trigger change
     // detection and send some useless network traffic every frame
     if events.is_empty() {
         return;
     }
-    let Some(ReadyState::AwaitingClients { ready_clients }) =
-        ready_state.as_mut().map(|x| x.as_mut())
-    else {
+    let Some(ReadyState::AwaitingClients) = ready_state.as_mut().map(|x| x.as_mut()) else {
         eprintln!("Discarding client ready notification, game has already started.");
-        return;
-    };
-    for &FromClient { client_id, .. } in events.read() {
-        ready_clients.insert(client_id);
-    }
-}
-
-#[derive(Resource, Deref, DerefMut, Debug, Default, Clone)]
-pub struct ClientShips(HashMap<ClientId, Entity>);
-
-fn handle_player_ready(
-    mut events: EventReader<FromClient<PlayerReady>>,
-    mut ready_state: Option<ResMut<ReadyState>>,
-) {
-    let Some(ReadyState::AwaitingClients { ready_clients }) =
-        ready_state.as_mut().map(|x| x.as_mut())
-    else {
         events.clear();
         return;
     };
     for &FromClient { client_id, .. } in events.read() {
-        ready_clients.insert(client_id);
+        let ClientId::Client(client) = client_id else {
+            eprintln!("Ignoring ready notification from server");
+            continue;
+        };
+        commands.entity(client).insert(Ready);
     }
 }
 
 fn start_game(
-    clients: Res<ConnectedClients>,
+    clients: Query<(&ConnectedClient, Has<Ready>)>,
     ready_states: Res<ReadyState>,
     mut commands: Commands,
 ) {
-    let ReadyState::AwaitingClients { ready_clients } = ready_states.as_ref() else {
+    let ReadyState::AwaitingClients = ready_states.as_ref() else {
         return;
     };
-    if clients.len() == 2 && clients.iter().all(|x| ready_clients.contains(&x.id())) {
+    if clients.iter().len() == 2 && clients.iter().all(|(_, ready)| ready) {
         commands.insert_resource(ReadyState::Starting {
             countdown: Duration::from_secs(5),
         });
     }
 }
 
-fn despawn_all<C: Component>(world: &mut World) {
+fn despawn_all<F: QueryFilter>(world: &mut World) {
     let to_despawn = world
-        .query_filtered::<Entity, With<C>>()
+        .query_filtered::<Entity, F>()
         .iter(world)
         .collect::<Vec<_>>();
     for e in to_despawn {
@@ -189,27 +189,33 @@ pub fn update_ships(
                 match volley {
                     Some(weapons::Volley::Projectile(volley)) => {
                         for i in 0..volley.weapon.volley_size {
-                            commands.spawn(DelayedProjectile {
-                                remaining: Duration::from_millis(300 * i as u64),
+                            commands.spawn((
+                                Name::new("Pending projectile"),
+                                DelayedProjectile {
+                                    remaining: Duration::from_millis(300 * i as u64),
+                                    weapon: volley.weapon,
+                                    target: volley.target,
+                                    fired_from: FiredFrom {
+                                        ship: e,
+                                        weapon_index,
+                                    },
+                                },
+                            ));
+                        }
+                    }
+                    Some(weapons::Volley::Beam(volley)) => {
+                        commands.spawn((
+                            Name::new("Pending beam"),
+                            DelayedBeam {
+                                remaining: Duration::from_millis(150),
                                 weapon: volley.weapon,
                                 target: volley.target,
                                 fired_from: FiredFrom {
                                     ship: e,
                                     weapon_index,
                                 },
-                            });
-                        }
-                    }
-                    Some(weapons::Volley::Beam(volley)) => {
-                        commands.spawn(DelayedBeam {
-                            remaining: Duration::from_millis(150),
-                            weapon: volley.weapon,
-                            target: volley.target,
-                            fired_from: FiredFrom {
-                                ship: e,
-                                weapon_index,
                             },
-                        });
+                        ));
                     }
                     None => {}
                 }
@@ -236,16 +242,19 @@ fn fire_projectiles(
                 if weapons.weapons()[projectile.fired_from.weapon_index].is_powered() {
                     commands.queue(move |world: &mut World| {
                         let info = world.entity_mut(e).take::<DelayedProjectile>().unwrap();
-                        world.spawn(ProjectileBundle {
-                            replicated: Replicated,
-                            damage: WeaponDamage(info.weapon.common.damage),
-                            target: info.target,
-                            fired_from: info.fired_from,
-                            traversal_speed: TraversalSpeed(info.weapon.shot_speed),
-                            traversal_progress: default(),
-                            needs_dodge_test: NeedsDodgeTest,
-                            shield_pierce: ShieldPierce(info.weapon.shield_pierce),
-                        });
+                        world.spawn((
+                            Name::new("Projectile"),
+                            ProjectileBundle {
+                                replicated: Replicated,
+                                damage: WeaponDamage(info.weapon.common.damage),
+                                target: info.target,
+                                fired_from: info.fired_from,
+                                traversal_speed: TraversalSpeed(info.weapon.shot_speed),
+                                traversal_progress: default(),
+                                needs_dodge_test: NeedsDodgeTest,
+                                shield_pierce: ShieldPierce(info.weapon.shield_pierce),
+                            },
+                        ));
                     });
                 }
             }
@@ -273,55 +282,11 @@ fn fire_beams(
                 if weapons.weapons()[beam.fired_from.weapon_index].is_powered() {
                     commands.queue(move |world: &mut World| {
                         let info = world.entity_mut(e).take::<DelayedBeam>().unwrap();
-                        world.spawn(BeamBundle {
-                            replicated: Replicated,
-                            damage: WeaponDamage(info.weapon.common.damage),
-                            target: info.target,
-                            hits: BeamHits::compute(ship_type, info.weapon.length, &info.target),
-                            fired_from: info.fired_from,
-                            traversal_speed: TraversalSpeed(info.weapon.speed),
-                            traversal_progress: default(),
-                        });
+                        world.spawn(BeamBundle::new(info, ship_type));
                     });
                 }
             }
             commands.entity(e).despawn();
-        }
-    }
-}
-
-fn update_intel_visibility(
-    mut clients: ResMut<ReplicatedClients>,
-    client_ships: Res<ClientShips>,
-    self_intel: Query<(Entity, &SelfIntel)>,
-    ships: Query<(Entity, &ShipIntel)>,
-) {
-    // For each client, make sure they only see entities based on their ship's sensors level
-    for client in clients.iter_mut() {
-        let client_id = client.id();
-        let client_visibility = client.visibility_mut();
-        let &own_ship = client_ships.get(&client_id).unwrap();
-
-        // Hide self intel for all but owning player
-        for (self_intel, SelfIntel { ship, .. }) in &self_intel {
-            client_visibility.set_visibility(self_intel, own_ship == *ship);
-        }
-
-        for (ship, intel) in &ships {
-            // Hardcoded for now to allow clients to see own interior
-            let sensor_level = 1; // 0-4, with 4 being level 3 + manned
-
-            if ship == own_ship {
-                // Clients always get their own crew vision and operational status
-                client_visibility.set_visibility(intel.crew_vision, true);
-                client_visibility.set_visibility(intel.weapon_charge, true);
-                client_visibility.set_visibility(intel.systems, true);
-                client_visibility.set_visibility(intel.interior, sensor_level > 0);
-            } else {
-                client_visibility.set_visibility(intel.interior, sensor_level > 1);
-                client_visibility.set_visibility(intel.weapon_charge, sensor_level > 2);
-                client_visibility.set_visibility(intel.systems, sensor_level > 3);
-            }
         }
     }
 }
@@ -335,9 +300,6 @@ fn update_intel(
         let (ship, mut intel) = ships.get_mut(self_intel.ship).unwrap();
         *self_intel = ship.self_intel(self_intel.ship);
         intel.basic = ship.basic_intel();
-        commands
-            .entity(intel.crew_vision)
-            .insert(ship.crew_vision_intel());
         commands
             .entity(intel.interior)
             .insert(ship.interior_intel());
@@ -372,41 +334,128 @@ fn advance_startup_countdown(
     }
 }
 
-fn handle_connections(mut server_events: EventReader<ServerEvent>, mut commands: Commands) {
-    for event in server_events.read() {
-        match event {
-            ServerEvent::ClientConnected { client_id } => {
-                println!("New client {client_id:?} connected.");
-                let client_id = *client_id;
-                commands.queue(move |world: &mut World| {
-                    spawn_player(world, client_id);
-                });
-            }
-            ServerEvent::ClientDisconnected { client_id, reason } => {
-                println!("Client {client_id:?} disconnected: {reason}");
-                commands.queue(reset_gamestate);
-            }
-        }
-    }
+fn handle_connection(connection: On<Add, AuthorizedClient>, mut commands: Commands) {
+    let client = connection.entity;
+    println!("Client connected: {:?}", client);
+    commands.queue(move |world: &mut World| {
+        init_player(world, client).unwrap();
+    });
+}
+
+fn handle_disconnection(connection: On<Remove, ConnectedClient>, mut commands: Commands) {
+    println!("Client disconnected: {:?}", connection.entity);
+    commands.queue(reset_gamestate);
 }
 
 fn reset_gamestate(world: &mut World) {
     world.init_resource::<ReadyState>();
-    world.init_resource::<ClientShips>();
-    despawn_all::<ShipState>(world);
-    despawn_all::<Replicated>(world);
+    despawn_all::<With<SelfIntel>>(world);
 
     let clients = world
-        .resource::<ConnectedClients>()
-        .iter()
-        .copied()
+        .query_filtered::<Entity, With<ConnectedClient>>()
+        .iter(world)
         .collect::<Vec<_>>();
     for client in clients {
-        spawn_player(world, client.id());
+        init_player(world, client).unwrap();
     }
 }
 
-fn spawn_player(world: &mut World, client_id: ClientId) {
+#[derive(Resource)]
+struct VisibilityScopes {
+    self_intel: FilterBit,
+    weapon_charge_intel: FilterBit,
+    systems_intel: FilterBit,
+    interior_intel: FilterBit,
+}
+
+impl FromWorld for VisibilityScopes {
+    fn from_world(world: &mut World) -> Self {
+        world.resource_scope::<FilterRegistry, _>(|world, mut filter_registry| {
+            world.resource_scope::<ReplicationRegistry, _>(|world, mut replication_registry| {
+                let self_intel = filter_registry
+                    .register_scope::<ComponentScope<SelfIntel>>(world, &mut replication_registry);
+                let weapon_charge_intel = filter_registry
+                    .register_scope::<ComponentScope<WeaponChargeIntel>>(
+                        world,
+                        &mut replication_registry,
+                    );
+                let systems_intel = filter_registry.register_scope::<ComponentScope<SystemsIntel>>(
+                    world,
+                    &mut replication_registry,
+                );
+                let interior_intel = filter_registry
+                    .register_scope::<ComponentScope<InteriorIntel>>(
+                        world,
+                        &mut replication_registry,
+                    );
+                Self {
+                    self_intel,
+                    weapon_charge_intel,
+                    systems_intel,
+                    interior_intel,
+                }
+            })
+        })
+    }
+}
+
+fn update_intel_visibility(
+    ships: Query<Entity, With<ShipState>>,
+    mut clients: Query<(Entity, &mut ClientVisibility)>,
+    visibility_scopes: Res<VisibilityScopes>,
+) -> Result {
+    for (client, mut visibility) in &mut clients {
+        let _state = ships.get(client)?;
+        let sensor_level = 1; // TODO
+        for ship in &ships {
+            if ship == client {
+                // Clients can see their own `SelfIntel`, `WeaponChargeIntel` and `SystemsIntel`. When their
+                // sensor level > 0, they can see their own `InteriorIntel`.
+                visibility.set(ship, visibility_scopes.self_intel, true);
+                visibility.set(ship, visibility_scopes.weapon_charge_intel, true);
+                visibility.set(ship, visibility_scopes.systems_intel, true);
+                visibility.set(ship, visibility_scopes.interior_intel, sensor_level > 0);
+            } else {
+                // Clients can see enemy `InteriorIntel` when sensor level > 1, `WeaponChargeIntel` when sensor
+                // level > 2, and `SystemsIntel` when sensor level > 3.
+                visibility.set(ship, visibility_scopes.self_intel, false);
+                visibility.set(ship, visibility_scopes.interior_intel, sensor_level > 1);
+                visibility.set(
+                    ship,
+                    visibility_scopes.weapon_charge_intel,
+                    sensor_level > 2,
+                );
+                visibility.set(ship, visibility_scopes.systems_intel, sensor_level > 3);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn init_player(world: &mut World, client: Entity) -> Result {
+    let state = default_ship_state();
+    world.entity_mut(client).insert((
+        Replicated,
+        ShipIntel {
+            basic: state.basic_intel(),
+            interior: client,
+            weapon_charge: client,
+            systems: client,
+        },
+        // Not replicated
+        state.interior_intel(),
+        state.weapon_charge_intel(),
+        state.systems_intel(),
+        state.self_intel(client),
+        state,
+    ));
+    world
+        .run_system_once::<_, (), _>(update_intel_visibility)
+        .map_err(|_| "In `init_player`: Error running `update_intel_visibility`")?;
+    Ok(())
+}
+
+fn default_ship_state() -> ShipState {
     let mut ship = ShipState::new();
     for _ in 0..8 {
         ship.reactor.upgrade();
@@ -457,25 +506,5 @@ fn spawn_player(world: &mut World, client_id: ClientId) {
     weapons.install_weapon(0, Weapon::new(HEAVY_LASER));
     weapons.install_weapon(1, Weapon::new(BURST_LASER_MK_I));
     weapons.install_weapon(2, Weapon::new(PIKE_BEAM));
-
-    let crew_vision = world.spawn((Replicated, ship.crew_vision_intel())).id();
-    let interior = world.spawn((Replicated, ship.interior_intel())).id();
-    let weapon_charge = world.spawn((Replicated, ship.weapon_charge_intel())).id();
-    let systems = world.spawn((Replicated, ship.systems_intel())).id();
-    let ship_e = world
-        .spawn((
-            Replicated,
-            ShipIntel {
-                basic: ship.basic_intel(),
-                crew_vision,
-                interior,
-                weapon_charge,
-                systems,
-            },
-        ))
-        .id();
-    world.spawn((Replicated, ship.self_intel(ship_e)));
-    world.entity_mut(ship_e).insert(ship);
-    let ship = ship_e;
-    world.resource_mut::<ClientShips>().insert(client_id, ship);
+    ship
 }

@@ -1,8 +1,10 @@
 use crate::util::{round_to_usize, MoveToward};
 use bevy::math::Vec2;
+use nonempty_collections::{IntoNonEmptyIterator, NEVec, NonEmptyIterator};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    num::NonZeroUsize,
     task::Poll,
 };
 
@@ -27,7 +29,7 @@ impl CrewNavStatus {
     }
 
     /// This crew's current goal cell. Only one crew can occupy a cell at a time. This crew may or
-    /// may not be anywhere near this cell.
+    /// may not be anywhere near this cell. This is how we enforce only one crew per cell.
     pub fn occupied_cell(&self) -> Cell {
         match self {
             CrewNavStatus::At(x) => *x,
@@ -36,7 +38,8 @@ impl CrewNavStatus {
     }
 
     /// This crew's current location, which can be either at a cell or currently traversing a nav
-    /// section. This represents the crew's physical position rather than their goal.
+    /// section. This represents the crew's physical position rather than their goal. This is used
+    /// as the starting point for pathfinding.
     pub fn current_location(&self) -> CrewLocation {
         match self {
             &CrewNavStatus::At(cell) => CrewLocation::Cell(cell),
@@ -44,6 +47,9 @@ impl CrewNavStatus {
         }
     }
 
+    /// The cell this crew is closest to. This is used mostly for violence... crew lose health when
+    /// they're in a room on fire or exposed to vacuum, or when their room gets hit by a projectile
+    /// or beam. Also crew determine attack targets based on their current room.
     pub fn current_cell(&self) -> Cell {
         match self {
             CrewNavStatus::At(cell) => *cell,
@@ -52,6 +58,10 @@ impl CrewNavStatus {
     }
 }
 
+/// The navigation state of a crew member. Contains their current path and location on the nav mesh.
+/// [`CrewNav::current_location`] is the crew's instantaneous position on the nav mesh -- for
+/// example, "between cell 3 and cell 5, 25% of the way there" -- while [`CrewNav::path`] is the
+/// sequence of cells through which they will navigate to reach their goal.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CrewNav {
     pub path: Path,
@@ -62,9 +72,10 @@ impl CrewNav {
     /// Advance by one fixed update step. This will move the crew along its current [`NavSection`]
     /// and update its progress along its [`Path`] if it's made it all the way across it. If the
     /// crew has reached the end of the path, this will return [`Poll::Ready`] with the [`Cell`]
-    /// that was reached, or [`Poll::Pending`] otherwise.
+    /// that was reached, or [`Poll::Pending`] otherwise. This is maybe an abuse of [`Poll`], but in
+    /// my head, it's semantically more clear than returning an `Option<Cell>`.
     fn step(&mut self, nav_mesh: &NavMesh) -> Poll<Cell> {
-        let current_goal = self.path.next_waypoint().unwrap();
+        let current_goal = self.path.next_waypoint();
         // Get target coordinate within nav section and step ourselves toward it
         // TODO move this logic to `NavLocation`
         let arrived = match &mut self.current_location {
@@ -81,18 +92,20 @@ impl CrewNav {
         };
         // If we've arrived, update our current location to the next nav section in our path
         if arrived {
-            self.path.step();
-            let Some(next_goal) = self.path.next_waypoint() else {
+            let Some(next_path) = self.path.clone().step() else {
                 return Poll::Ready(current_goal);
             };
+            self.path = next_path;
             let next_section = nav_mesh
-                .section_with_cells(current_goal, next_goal)
+                .section_with_cells(current_goal, self.path.next_waypoint())
                 .unwrap();
             self.current_location = next_section.to_location(current_goal);
         }
         Poll::Pending
     }
 
+    /// The [`NavSection`] this crew is currently traversing. Used for determining starting point
+    /// for pathfinding.
     fn nav_section(&self) -> NavSection {
         match self.current_location {
             NavLocation::Line(x, _) => NavSection::Line(x),
@@ -100,6 +113,8 @@ impl CrewNav {
         }
     }
 
+    /// The cell this crew is currently closest to. Used for violence, see
+    /// [`CrewNavStatus::current_cell`].
     fn current_cell(&self) -> Cell {
         match self.current_location {
             NavLocation::Line(line, x) => line.0[round_to_usize(x)],
@@ -108,11 +123,16 @@ impl CrewNav {
     }
 }
 
+/// A crew member's current location on the nav mesh, either at a cell or traversing a nav section.
+/// Used to determine starting point for pathfinding.
 pub enum CrewLocation {
     Cell(Cell),
     NavSection(NavSection),
 }
 
+/// Holds information about how a ship's cells are connected for pathfinding purposes. 2x2 rooms are
+/// represented as squares, while 1x2 rooms and paths through doors are represented as lines. The
+/// only difference is that squares can be traversed diagonally.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NavMesh {
     pub lines: Vec<LineSection>,
@@ -152,9 +172,8 @@ impl NavMesh {
         let Some(start) = start else {
             return None;
         };
-        let mut path = Vec::new();
-        path.push(start);
-        while let Some(&next) = pathing.came_from.get(path.last().unwrap()) {
+        let mut path = NEVec::new(start);
+        while let Some(&next) = pathing.came_from.get(path.last()) {
             path.push(next);
         }
         path.reverse();
@@ -193,30 +212,10 @@ impl NavSection {
 
     pub fn cells(&self) -> impl Iterator<Item = Cell> {
         match self {
-            &NavSection::Line(LineSection([a, b])) => NavSectionCells([a, a, a, b], 2),
-            &NavSection::Square(SquareSection([[a, b], [c, d]])) => [a, b, c, d].into(),
+            &NavSection::Line(LineSection([a, b])) => vec![a, b].into_iter(),
+            &NavSection::Square(SquareSection([[a, b], [c, d]])) => vec![a, b, c, d].into_iter(),
         }
         .into_iter()
-    }
-}
-
-// Please just ignore this. I just wanted zero-cost iteration over a nav section's cells and I...
-// got carried away.
-struct NavSectionCells([Cell; 4], usize);
-
-impl Iterator for NavSectionCells {
-    type Item = Cell;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.1 += 1;
-        // SAFETY: We just incremented self.1, so we can def subtract 1
-        (self.1 <= 4).then(|| self.0[unsafe { self.1.unchecked_sub(1) }])
-    }
-}
-
-impl From<[Cell; 4]> for NavSectionCells {
-    fn from(value: [Cell; 4]) -> Self {
-        Self(value, 0)
     }
 }
 
@@ -285,6 +284,7 @@ impl PathGraph {
         self.edges.get(&cell).unwrap().iter().cloned()
     }
 
+    /// Generate a [`GoalPathing`] for reaching `goal` from any other cell.
     pub fn pathing_to(&self, goal: Cell) -> GoalPathing {
         let mut frontier = VecDeque::new();
         frontier.push_back(goal);
@@ -304,7 +304,10 @@ impl PathGraph {
     }
 }
 
-/// A collection of info on how to get to [`Self::goal`] from anywhere in a ship.
+/// Information on how to get to a goal cell from any other cell. [`GoalPathing::came_from`] maps
+/// each cell to the next cell on the path toward the goal. If a cell is not in the map, it is
+/// either the goal cell itself or unreachable from the goal. In either case, a crew wanting to
+/// travel to such a cell will not be given a path.
 #[derive(Debug, Clone)]
 pub struct GoalPathing {
     came_from: HashMap<Cell, Cell>,
@@ -312,26 +315,29 @@ pub struct GoalPathing {
 
 /// Represents a sequence of waypoints to get from the current cell to a target cell.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Path(Vec<Cell>);
+pub struct Path(NEVec<Cell>);
 
 impl Path {
     pub fn goal(&self) -> Cell {
-        self.0[0]
-    }
-
-    pub fn next_waypoint(&self) -> Option<Cell> {
-        self.0.last().cloned()
+        *self.0.first()
     }
 
     /// Returns the next [`Cell`] in the path, or [`None`] if the path is empty. An empty path
     /// indicates path completion.
-    pub fn step(&mut self) {
-        self.0.pop();
+    pub fn next_waypoint(&self) -> Cell {
+        *self.0.last()
+    }
+
+    pub fn step(self) -> Option<Self> {
+        let new_len = NonZeroUsize::new(self.0.len().get() - 1)?;
+        Some(Path(self.0.into_nonempty_iter().take(new_len).collect()))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use nonempty_collections::nev;
+
     use super::*;
 
     fn nav_mesh() -> NavMesh {
@@ -375,7 +381,7 @@ mod tests {
     #[test]
     fn nav_a_to_b() {
         let nav_mesh = nav_mesh();
-        let path = Path(vec![Cell(6), Cell(7), Cell(5), Cell(3)]);
+        let path = Path(nev![Cell(6), Cell(7), Cell(5), Cell(3)]);
         let current_location = NavLocation::Square(
             SquareSection([[Cell(0), Cell(1)], [Cell(2), Cell(3)]]),
             Vec2::new(0.0, 0.0),
@@ -400,7 +406,7 @@ mod tests {
     #[test]
     fn nav_b_to_a() {
         let nav_mesh = nav_mesh();
-        let path = Path(vec![Cell(6), Cell(7), Cell(5), Cell(3)]);
+        let path = Path(nev![Cell(6), Cell(7), Cell(5), Cell(3)]);
         let current_location = NavLocation::Square(
             SquareSection([[Cell(0), Cell(1)], [Cell(2), Cell(3)]]),
             Vec2::new(0.0, 0.0),
@@ -429,12 +435,12 @@ mod tests {
         let pathing = path_graph.pathing_to(Cell(6));
 
         let path = nav_mesh.find_path(&pathing, CrewLocation::Cell(Cell(0)));
-        assert_eq!(path, Some(Path(vec![Cell(6), Cell(7), Cell(5), Cell(3)])));
+        assert_eq!(path, Some(Path(nev![Cell(6), Cell(7), Cell(5), Cell(3)])));
         let path = nav_mesh.find_path(
             &pathing,
             CrewLocation::NavSection(NavSection::Square(nav_mesh.squares[0])),
         );
-        assert_eq!(path, Some(Path(vec![Cell(6), Cell(7), Cell(5), Cell(3)])));
+        assert_eq!(path, Some(Path(nev![Cell(6), Cell(7), Cell(5), Cell(3)])));
         let path = nav_mesh.find_path(&pathing, CrewLocation::Cell(Cell(8)));
         assert_eq!(path, None);
         let path = nav_mesh.find_path(&pathing, CrewLocation::Cell(Cell(6)));

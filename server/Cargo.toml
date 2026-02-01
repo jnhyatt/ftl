@@ -10,6 +10,6 @@ bevy_replicon_renet = { workspace = true, features = [
     "server",
     "renet_netcode",
 ] }
-common = { path = "../common" }
+common = { path = "../common", features = ["server"] }
 rand = { workspace = true }
 strum = { workspace = true }

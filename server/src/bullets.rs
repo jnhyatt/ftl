@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use bevy::{math::FloatOrd, prelude::*};
-use bevy_replicon::core::replication::Replicated;
+use bevy_replicon::shared::replication::Replicated;
 use common::{
     bullets::{BeamTarget, FiredFrom, NeedsDodgeTest, Progress, RoomTarget, WeaponDamage},
     compute_dodge_chance,
@@ -189,6 +189,22 @@ pub struct BeamBundle {
     pub fired_from: FiredFrom,
     pub traversal_speed: TraversalSpeed,
     pub traversal_progress: Progress,
+    pub name: Name,
+}
+
+impl BeamBundle {
+    pub fn new(info: DelayedBeam, ship_type: usize) -> Self {
+        Self {
+            replicated: Replicated,
+            damage: WeaponDamage(info.weapon.common.damage),
+            target: info.target,
+            hits: BeamHits::compute(ship_type, info.weapon.length, &info.target),
+            fired_from: info.fired_from,
+            traversal_speed: TraversalSpeed(info.weapon.speed),
+            traversal_progress: default(),
+            name: Name::new("Beam"),
+        }
+    }
 }
 
 #[derive(Component, Deref, Debug, Clone, Copy, PartialEq)]

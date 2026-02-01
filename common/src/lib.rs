@@ -3,11 +3,10 @@ pub mod events;
 pub mod intel;
 pub mod lobby;
 pub mod nav;
+mod replicate_resource;
 pub mod ship;
 pub mod util;
 pub mod weapon;
-
-mod replicate_resource;
 
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
@@ -17,26 +16,27 @@ use events::{
     SetDoorsOpen, SetProjectileWeaponTarget, WeaponPower,
 };
 use intel::{
-    CrewIntel, CrewNavIntel, CrewVisionIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel,
-    WeaponChargeIntel,
+    CrewIntel, CrewNavIntel, InteriorIntel, SelfIntel, ShipIntel, SystemsIntel, WeaponChargeIntel,
 };
-use lobby::{PlayerReady, ReadyState};
+use lobby::PlayerReady;
 use nav::{Cell, CrewNavStatus};
-use replicate_resource::ReplicateResExt;
 use serde::{Deserialize, Serialize};
 use ship::{Dead, Room};
+
+use crate::{
+    lobby::{Ready, ReadyState},
+    replicate_resource::ReplicateResExt as _,
+};
 
 pub const PROTOCOL_ID: u64 = 1;
 
 pub fn protocol_plugin(app: &mut App) {
     // Ready state communication
-    app.replicate_resource::<ReadyState>();
-    app.add_client_event::<PlayerReady>(ChannelKind::Ordered);
+    app.add_client_message::<PlayerReady>(Channel::Ordered);
 
     // Make sure intel makes it all the way to clients
-    app.replicate_mapped::<SelfIntel>();
-    app.replicate_mapped::<ShipIntel>();
-    app.replicate::<CrewVisionIntel>();
+    app.replicate::<SelfIntel>();
+    app.replicate::<ShipIntel>();
     app.replicate::<InteriorIntel>();
     app.replicate::<WeaponChargeIntel>();
     app.replicate::<SystemsIntel>();
@@ -45,21 +45,23 @@ pub fn protocol_plugin(app: &mut App) {
     app.replicate::<Progress>();
     app.replicate::<WeaponDamage>();
     app.replicate::<NeedsDodgeTest>();
-    app.replicate_mapped::<RoomTarget>();
-    app.replicate_mapped::<BeamTarget>();
-    app.replicate_mapped::<FiredFrom>();
+    app.replicate::<RoomTarget>();
+    app.replicate::<BeamTarget>();
+    app.replicate::<FiredFrom>();
     app.replicate::<Dead>();
+    app.replicate::<Ready>();
+    app.replicate_resource::<ReadyState>();
 
     // Player inputs
-    app.add_client_event::<AdjustPower>(ChannelKind::Ordered);
-    app.add_client_event::<WeaponPower>(ChannelKind::Ordered);
-    app.add_mapped_client_event::<SetProjectileWeaponTarget>(ChannelKind::Ordered);
-    app.add_mapped_client_event::<SetBeamWeaponTarget>(ChannelKind::Ordered);
-    app.add_client_event::<MoveWeapon>(ChannelKind::Ordered);
-    app.add_client_event::<SetCrewGoal>(ChannelKind::Ordered);
-    app.add_client_event::<SetAutofire>(ChannelKind::Ordered);
-    app.add_client_event::<SetDoorsOpen>(ChannelKind::Ordered);
-    app.add_client_event::<CrewStations>(ChannelKind::Ordered);
+    app.add_client_message::<AdjustPower>(Channel::Ordered);
+    app.add_client_message::<WeaponPower>(Channel::Ordered);
+    app.add_mapped_client_message::<SetProjectileWeaponTarget>(Channel::Ordered);
+    app.add_mapped_client_message::<SetBeamWeaponTarget>(Channel::Ordered);
+    app.add_client_message::<MoveWeapon>(Channel::Ordered);
+    app.add_client_message::<SetCrewGoal>(Channel::Ordered);
+    app.add_client_message::<SetAutofire>(Channel::Ordered);
+    app.add_client_message::<SetDoorsOpen>(Channel::Ordered);
+    app.add_client_message::<CrewStations>(Channel::Ordered);
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Default, Debug)]

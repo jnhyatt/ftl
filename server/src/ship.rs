@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use common::{
     bullets::{BeamTarget, RoomTarget},
     intel::{
-        BasicIntel, CrewVisionIntel, InteriorIntel, RoomIntel, SelfIntel, ShieldIntel,
-        SystemsIntel, WeaponChargeIntel, WeaponIntel, WeaponsIntel,
+        BasicIntel, InteriorIntel, RoomIntel, SelfIntel, ShieldIntel, SystemsIntel,
+        WeaponChargeIntel, WeaponIntel, WeaponsIntel,
     },
     nav::{Cell, CrewNav, CrewNavStatus, NavMesh, PathGraph},
     ship::{Door, SystemId, SHIPS},
@@ -45,7 +45,7 @@ impl ShipState {
         let (nav_lines, nav_squares) = SHIPS[ship_type].nav_mesh;
         Self {
             ship_type,
-            reactor: Reactor::new(0),
+            reactor: Reactor::new(),
             systems: default(),
             max_hull: 30,
             damage: 0,
@@ -97,7 +97,6 @@ impl ShipState {
     pub fn basic_intel(&self) -> BasicIntel {
         BasicIntel {
             ship_type: self.ship_type,
-            max_hull: self.max_hull,
             hull: self.max_hull - self.damage,
             system_locations: SHIPS[self.ship_type]
                 .room_systems
@@ -134,10 +133,6 @@ impl ShipState {
                 .map(|oxygen| oxygen.damage_intel()),
             doors: self.doors.clone(),
         }
-    }
-
-    pub fn crew_vision_intel(&self) -> CrewVisionIntel {
-        CrewVisionIntel
     }
 
     pub fn interior_intel(&self) -> InteriorIntel {
@@ -411,7 +406,7 @@ impl ShipState {
         };
         let current_location = match crew {
             CrewNavStatus::At(cell) => nav_mesh
-                .section_with_cells(*cell, path.next_waypoint().unwrap())
+                .section_with_cells(*cell, path.next_waypoint())
                 .unwrap()
                 .to_location(*cell),
             CrewNavStatus::Navigating(nav) => nav.current_location,

@@ -5,8 +5,12 @@ edition = "2021"
 
 [dependencies]
 bevy = { workspace = true, features = [
+    "bevy_core_pipeline",
     "bevy_gizmos",
+    "bevy_render",
     "bevy_sprite",
+    "bevy_sprite_picking_backend",
+    "bevy_sprite_render",
     "bevy_ui",
     "bevy_window",
     "bevy_winit",
@@ -14,7 +18,7 @@ bevy = { workspace = true, features = [
     "png",
     "serialize",
 ] }
-bevy_egui = "0.31"
+bevy_egui = "0.37"
 bevy_replicon = { workspace = true, features = ["client"] }
 bevy_replicon_renet = { workspace = true, features = [
     "client",
@@ -22,6 +26,6 @@ bevy_replicon_renet = { workspace = true, features = [
 ] }
 common = { path = "../common" }
 is-even = "1"
-leafwing-input-manager = "0.16"
+leafwing-input-manager = "0.18"
 rand = { workspace = true }
 strum = { workspace = true }

@@ -5,10 +5,10 @@ pub struct Reactor {
 }
 
 impl Reactor {
-    pub fn new(upgrade_level: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            upgrade_level,
-            available: upgrade_level,
+            upgrade_level: 0,
+            available: 0,
         }
     }
 

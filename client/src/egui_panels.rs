@@ -1,16 +1,15 @@
-use crate::interaction::start_targeting;
+use crate::targeting::start_targeting;
 use bevy::{color::palettes::basic::*, prelude::*};
 use bevy_egui::{
     egui::{self, Color32, RichText, Ui},
     EguiContexts,
 };
-use bevy_replicon::prelude::*;
 use common::{
     compute_dodge_chance,
     events::{AdjustPower, CrewStations, MoveWeapon, PowerDir, SetAutofire, WeaponPower},
     intel::{SelfIntel, ShipIntel, SystemDamageIntel, SystemsIntel, WeaponChargeIntel},
-    lobby::{PlayerReady, ReadyState},
-    ship::{Dead, SystemId},
+    lobby::{PlayerReady, Ready, ReadyState},
+    ship::{Dead, SystemId, SHIPS},
     util::round_to_usize,
     weapon::WeaponId,
     RACES,
@@ -18,27 +17,23 @@ use common::{
 
 pub fn status_panel(
     mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<&ShipIntel, Without<Dead>>,
     systems: Query<&SystemsIntel>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        // No connection to server
-        return;
-    };
+) -> Result {
     let Ok(intel) = ships.get(self_intel.ship) else {
         // Ship destroyed
-        return;
+        return Ok(());
     };
     let systems = systems.get(intel.systems).unwrap();
     egui::Window::new("Ship Status")
         .anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO)
         .title_bar(false)
         .resizable(false)
-        .show(ui.ctx_mut(), |ui| {
+        .show(ui.ctx_mut()?, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Hull Integrity");
-                let max = intel.basic.max_hull;
+                let max = SHIPS[intel.basic.ship_type].max_hull;
                 let current = intel.basic.hull;
                 let percent = current as f32 / max as f32;
                 let color = if percent > 0.66 {
@@ -51,7 +46,7 @@ pub fn status_panel(
                 ui.add(
                     egui::ProgressBar::new(percent)
                         .desired_width(400.0)
-                        .rounding(0.0)
+                        .corner_radius(0.0)
                         .fill(color),
                 );
                 ui.label(format!("{current}/{max}"));
@@ -72,29 +67,26 @@ pub fn status_panel(
             }
             ui.label(missile_text);
         });
+    Ok(())
 }
 
 pub fn power_panel(
     mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<&ShipIntel, Without<Dead>>,
     systems: Query<&SystemsIntel>,
-    mut adjust_power: EventWriter<AdjustPower>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        // No connection to server
-        return;
-    };
+    mut adjust_power: MessageWriter<AdjustPower>,
+) -> Result {
     let Ok(intel) = ships.get(self_intel.ship) else {
         // Ship destroyed
-        return;
+        return Ok(());
     };
     let systems = systems.get(intel.systems).unwrap();
     egui::Window::new("Power")
         .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::ZERO)
         .title_bar(false)
         .resizable(false)
-        .show(ui.ctx_mut(), |ui| {
+        .show(ui.ctx_mut()?, |ui| {
             ui.label("Reactor");
             #[allow(unused_must_use)]
             ui.horizontal(|ui| {
@@ -115,7 +107,7 @@ pub fn power_panel(
                     shields.damage,
                     SystemId::Shields,
                 ) {
-                    adjust_power.send(request);
+                    adjust_power.write(request);
                 }
             }
             if let Some(engines) = systems.get(&SystemId::Engines) {
@@ -127,7 +119,7 @@ pub fn power_panel(
                     engines.damage,
                     SystemId::Engines,
                 ) {
-                    adjust_power.send(request);
+                    adjust_power.write(request);
                 }
             }
             if let Some(weapons) = systems.get(&SystemId::Weapons) {
@@ -139,7 +131,7 @@ pub fn power_panel(
                     weapons.damage,
                     SystemId::Weapons,
                 ) {
-                    adjust_power.send(request);
+                    adjust_power.write(request);
                 }
             }
             if let Some(oxygen) = systems.get(&SystemId::Oxygen) {
@@ -151,10 +143,11 @@ pub fn power_panel(
                     oxygen.damage,
                     SystemId::Oxygen,
                 ) {
-                    adjust_power.send(request);
+                    adjust_power.write(request);
                 }
             }
         });
+    Ok(())
 }
 
 #[allow(unused_must_use)]
@@ -205,26 +198,22 @@ fn power_bar(
 
 pub fn shields_panel(
     mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<&ShipIntel, Without<Dead>>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        // No connection to server
-        return;
-    };
+) -> Result {
     let Ok(intel) = ships.get(self_intel.ship) else {
         // Ship destroyed
-        return;
+        return Ok(());
     };
     let Some(shields) = &intel.basic.shields else {
         // No shields installed
-        return;
+        return Ok(());
     };
     egui::Window::new("Shields")
         .anchor(egui::Align2::LEFT_TOP, egui::Vec2::new(0.0, 80.0))
         .title_bar(false)
         .resizable(false)
-        .show(ui.ctx_mut(), |ui| {
+        .show(ui.ctx_mut()?, |ui| {
             ui.horizontal(|ui| {
                 for _ in 0..shields.layers {
                     let _ = ui.selectable_label(true, "O");
@@ -236,48 +225,50 @@ pub fn shields_panel(
             ui.add(
                 egui::ProgressBar::new(shields.charge)
                     .desired_width(125.0)
-                    .rounding(0.0),
+                    .corner_radius(0.0),
             );
         });
+    Ok(())
 }
 
 pub fn ready_panel(
     mut ui: EguiContexts,
     ready_state: Res<ReadyState>,
-    mut client_ready: EventWriter<PlayerReady>,
-    client: Res<RepliconClient>,
-) {
-    if let Some(client_id) = client.id() {
-        egui::Window::new("Ready phase")
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .title_bar(false)
-            .resizable(false)
-            .show(ui.ctx_mut(), |ui| match ready_state.as_ref() {
-                ReadyState::AwaitingClients { ready_clients } => {
-                    if ready_clients.contains(&client_id) {
-                        ui.label("Waiting for players...");
-                    } else {
-                        if ui.button("Ready").clicked() {
-                            client_ready.send(default());
-                        }
+    mut client_ready: MessageWriter<PlayerReady>,
+    self_intel: Single<&SelfIntel>,
+    me: Query<Has<Ready>>,
+) -> Result {
+    let ready = me.get(self_intel.ship)?;
+    egui::Window::new("Ready phase")
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .title_bar(false)
+        .resizable(false)
+        .show(ui.ctx_mut()?, |ui| match ready_state.as_ref() {
+            ReadyState::AwaitingClients => {
+                if ready {
+                    ui.label("Waiting for players...");
+                } else {
+                    if ui.button("Ready").clicked() {
+                        client_ready.write(default());
                     }
                 }
-                ReadyState::Starting { countdown } => {
-                    ui.label(format!("Starting in {}", countdown.as_secs() + 1));
-                }
-            });
-    }
+            }
+            ReadyState::Starting { countdown } => {
+                ui.label(format!("Starting in {}", countdown.as_secs() + 1));
+            }
+        });
+    Ok(())
 }
 
 pub fn weapon_rearrange_ui(
     ui: &mut Ui,
     index: usize,
     last_weapon: usize,
-    weapon_ordering: &mut EventWriter<MoveWeapon>,
+    weapon_ordering: &mut MessageWriter<MoveWeapon>,
 ) {
     ui.add_enabled_ui(index > 0, |ui| {
         if ui.button("⬆").clicked() {
-            weapon_ordering.send(MoveWeapon {
+            weapon_ordering.write(MoveWeapon {
                 weapon_index: index,
                 target_index: index - 1,
             });
@@ -285,7 +276,7 @@ pub fn weapon_rearrange_ui(
     });
     ui.add_enabled_ui(index < last_weapon, |ui| {
         if ui.button("⬇").clicked() {
-            weapon_ordering.send(MoveWeapon {
+            weapon_ordering.write(MoveWeapon {
                 weapon_index: index,
                 target_index: index + 1,
             });
@@ -298,7 +289,7 @@ pub fn weapon_power_ui(
     powered: bool,
     index: usize,
     weapon: WeaponId,
-    weapon_power: &mut EventWriter<WeaponPower>,
+    weapon_power: &mut MessageWriter<WeaponPower>,
 ) {
     let mut new_powered = powered;
     for _ in 0..weapon.common().power {
@@ -311,7 +302,7 @@ pub fn weapon_power_ui(
         } else {
             PowerDir::Remove
         };
-        weapon_power.send(WeaponPower {
+        weapon_power.write(WeaponPower {
             dir,
             weapon_index: index,
         });
@@ -328,37 +319,34 @@ pub fn weapon_charge_ui(ui: &mut Ui, charge: f32, weapon: WeaponId) {
     ui.add(
         egui::ProgressBar::new(charge)
             .desired_width(100.0)
-            .rounding(0.0)
+            .corner_radius(0.0)
             .fill(color),
     );
 }
 
 pub fn enemy_panels(
     mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<(Entity, &ShipIntel, Has<Dead>)>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
+) -> Result {
     let enemies = ships.iter().filter(|(e, _, _)| *e != self_intel.ship);
     for (_, intel, dead) in enemies {
         egui::Window::new(format!("Target"))
             .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::ZERO)
             .title_bar(false)
             .resizable(false)
-            .show(ui.ctx_mut(), |ui| {
+            .show(ui.ctx_mut()?, |ui| {
                 if dead {
                     ui.label("DESTROYED");
                 } else {
                     ui.horizontal(|ui| {
                         ui.label("Hull Integrity");
-                        let max = intel.basic.max_hull;
+                        let max = SHIPS[intel.basic.ship_type].max_hull;
                         let current = intel.basic.hull;
                         ui.add(
                             egui::ProgressBar::new(current as f32 / max as f32)
                                 .desired_width(400.0)
-                                .rounding(0.0)
+                                .corner_radius(0.0)
                                 .fill(Color32::GREEN),
                         );
                         ui.label(format!("{current}/{max}"));
@@ -377,7 +365,7 @@ pub fn enemy_panels(
                             }
                         });
                         ui.horizontal(|ui| {
-                            ui.add(egui::ProgressBar::new(shields.charge).rounding(0.0));
+                            ui.add(egui::ProgressBar::new(shields.charge).corner_radius(0.0));
                         });
                     }
                     if let Some(engines) = &intel.basic.engines {
@@ -410,6 +398,7 @@ pub fn enemy_panels(
                 }
             });
     }
+    Ok(())
 }
 
 fn system_damage_label(ui: &mut Ui, intel: &SystemDamageIntel) {
@@ -423,32 +412,28 @@ fn system_damage_label(ui: &mut Ui, intel: &SystemDamageIntel) {
 
 pub fn weapons_panel(
     mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<&ShipIntel, Without<Dead>>,
     charge_intel: Query<&WeaponChargeIntel>,
-    mut weapon_power: EventWriter<WeaponPower>,
-    mut weapon_ordering: EventWriter<MoveWeapon>,
-    mut set_autofire: EventWriter<SetAutofire>,
+    mut weapon_power: MessageWriter<WeaponPower>,
+    mut weapon_ordering: MessageWriter<MoveWeapon>,
+    mut set_autofire: MessageWriter<SetAutofire>,
     mut commands: Commands,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        // No connection to server
-        return;
-    };
+) -> Result {
     let Ok(intel) = ships.get(self_intel.ship) else {
         // Ship destroyed
-        return;
+        return Ok(());
     };
     let Some(weapons) = &intel.basic.weapons else {
         // No weapons system
-        return;
+        return Ok(());
     };
     let weapon_charges = charge_intel.get(intel.weapon_charge).unwrap();
     egui::Window::new("Weapons")
         .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::ZERO)
         .title_bar(false)
         .resizable(false)
-        .show(ui.ctx_mut(), |ui| {
+        .show(ui.ctx_mut()?, |ui| {
             let last_weapon = weapons.weapons.len() - 1;
             for (weapon_index, weapon) in weapons.weapons.iter().enumerate() {
                 ui.horizontal(|ui| {
@@ -466,32 +451,32 @@ pub fn weapons_panel(
                         format!("[{}] {}", weapon_index + 1, weapon.weapon.common().name),
                     );
                     weapon_charge_ui(ui, weapon_charges.levels[weapon_index], weapon.weapon);
-                    if ui.button("Target").clicked() {
-                        commands.queue(start_targeting(weapon_index));
+                    if weapon.powered {
+                        if ui.button("Target").clicked() {
+                            commands.queue(start_targeting(weapon_index));
+                        }
                     }
                 });
             }
             let mut autofire = self_intel.autofire;
             ui.checkbox(&mut autofire, "[V] Autofire");
             if autofire != self_intel.autofire {
-                set_autofire.send(SetAutofire(autofire));
+                set_autofire.write(SetAutofire(autofire));
             }
         });
+    Ok(())
 }
 
 pub fn crew_panel(
     mut ui: EguiContexts,
-    self_intel: Query<&SelfIntel>,
-    mut crew_stations: EventWriter<CrewStations>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
+    self_intel: Single<&SelfIntel>,
+    mut crew_stations: MessageWriter<CrewStations>,
+) -> Result {
     egui::Window::new("Crew")
         .anchor(egui::Align2::LEFT_TOP, egui::Vec2::new(0.0, 135.0))
         .title_bar(false)
         .resizable(false)
-        .show(ui.ctx_mut(), |ui| {
+        .show(ui.ctx_mut()?, |ui| {
             for (_crew_index, crew) in self_intel.crew.iter().enumerate() {
                 ui.group(|ui| {
                     ui.heading(&crew.name);
@@ -503,12 +488,13 @@ pub fn crew_panel(
                 });
             }
             if ui.button("Save stations").clicked() {
-                crew_stations.send(CrewStations::Save);
+                crew_stations.write(CrewStations::Save);
             }
             if ui.button("Return to stations").clicked() {
-                crew_stations.send(CrewStations::Return);
+                crew_stations.write(CrewStations::Return);
             }
         });
+    Ok(())
 }
 
 pub fn size_color(index: usize) -> (f32, Srgba) {

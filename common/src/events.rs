@@ -6,13 +6,13 @@ use crate::{
     ship::SystemId,
 };
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct AdjustPower {
     /// Whether to request power from or return power to the reactor.
     pub dir: PowerDir,
-    /// Which system power is being adjusted for. The server handles adjusting
-    /// power in useful increments -- for example, a single `AdjustPower` event
-    /// targeting shields will increase power to shields by two.
+    /// Which system power is being adjusted for. The server handles adjusting power in useful
+    /// increments -- for example, a single `AdjustPower` event targeting shields will increase
+    /// power to shields by two.
     pub system: SystemId,
 }
 
@@ -32,7 +32,7 @@ impl AdjustPower {
     }
 }
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct WeaponPower {
     /// Whether to request power from or return power to the reactor.
     pub dir: PowerDir,
@@ -40,56 +40,42 @@ pub struct WeaponPower {
     pub weapon_index: usize,
 }
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, MapEntities, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetProjectileWeaponTarget {
     pub weapon_index: usize,
+    #[entities]
     pub target: Option<RoomTarget>,
 }
 
-impl MapEntities for SetProjectileWeaponTarget {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(target) = &mut self.target {
-            target.map_entities(entity_mapper);
-        }
-    }
-}
-
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, MapEntities, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetBeamWeaponTarget {
     pub weapon_index: usize,
+    #[entities]
     pub target: Option<BeamTarget>,
 }
 
-impl MapEntities for SetBeamWeaponTarget {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(target) = &mut self.target {
-            target.map_entities(entity_mapper);
-        }
-    }
-}
-
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct MoveWeapon {
     pub weapon_index: usize,
     pub target_index: usize,
 }
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetCrewGoal {
     pub crew: usize,
     pub room: usize,
 }
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct SetAutofire(pub bool);
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum SetDoorsOpen {
     Single { door: usize, open: bool },
     All { open: bool },
 }
 
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Message, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum CrewStations {
     Save,
     Return,

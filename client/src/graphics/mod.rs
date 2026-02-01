@@ -1,48 +1,51 @@
-use std::f32::consts::TAU;
-
-use bevy::{color::palettes, prelude::*};
-use common::{
-    bullets::{BeamTarget, FiredFrom, Progress, RoomTarget},
-    intel::{InteriorIntel, SelfIntel, ShipIntel},
-    nav::{Cell, CrewNavStatus, LineSection, NavLocation, SquareSection},
-    ship::{Dead, Door, DoorDir, SystemId, SHIPS},
-    util::inverse_lerp,
-    weapon::{WeaponId, WeaponTarget},
-};
-use rand::{thread_rng, Rng};
-use strum::IntoEnumIterator;
+mod crew;
 
 use crate::{
     egui_panels::size_color,
-    interaction::{handle_cell_click, toggle_door, TargetingWeapon},
-    select::Selectable,
+    graphics::crew::{sync_crew_count, sync_crew_positions},
+    pointer::{
+        set_crew_goal,
+        targeting::{target_weapon, DisableWhenTargeting, EnableWhenTargeting, TargetingWeapon},
+        toggle_door,
+    },
 };
+use bevy::{
+    color::palettes,
+    math::{CompassOctant, CompassQuadrant},
+    prelude::*,
+};
+use common::{
+    bullets::{BeamTarget, FiredFrom, Progress, RoomTarget},
+    intel::{InteriorIntel, SelfIntel, ShipIntel},
+    nav::Cell,
+    ship::{Dead, Door, SystemId, SHIPS},
+    util::{inverse_lerp, DisabledObserver},
+    weapon::{WeaponId, WeaponTarget},
+};
+use rand::{thread_rng, Rng};
+use std::f32::consts::TAU;
+use strum::IntoEnumIterator;
+
+pub fn graphics_plugin(app: &mut App) {
+    app.add_systems(
+        Update,
+        (sync_crew_count, sync_crew_positions)
+            .chain()
+            .run_if(any_with_component::<SelfIntel>),
+    );
+}
 
 const Z_BG: f32 = 0.0;
 const Z_SHIP: f32 = Z_BG + 1.0;
 const Z_BULLETS: f32 = Z_SHIP + Z_SHIELDS + 1.0;
-
 const Z_CELL: f32 = 1.0;
 const Z_ICONS: f32 = Z_CELL + Z_WALLS;
 const Z_CREW: f32 = Z_ICONS + 1.0;
 const Z_SHIELDS: f32 = Z_CREW + 1.0;
-
 const Z_AIR: f32 = 1.0;
 const Z_VACUUM: f32 = Z_AIR + 1.0;
 const Z_NO_INTEL: f32 = Z_VACUUM + 1.0;
 const Z_WALLS: f32 = Z_NO_INTEL + 1.0;
-
-#[derive(Clone, Copy)]
-enum Walls {
-    TopRight,
-    Top,
-    TopLeft,
-    Left,
-    BottomLeft,
-    Bottom,
-    BottomRight,
-    Right,
-}
 
 #[derive(Component)]
 pub struct DoorGraphic(pub usize);
@@ -50,103 +53,30 @@ pub struct DoorGraphic(pub usize);
 #[derive(Component)]
 pub struct CrewGraphic(pub usize);
 
-pub fn sync_crew_count(
-    self_intel: Query<&SelfIntel>,
-    crew: Query<(Entity, &Parent, &CrewGraphic)>,
-    assets: Res<AssetServer>,
-    mut commands: Commands,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
-    let crew_graphics = crew
-        .iter()
-        .filter(|&(_, parent, _)| **parent == self_intel.ship)
-        .collect::<Vec<_>>();
-    let crew_count = self_intel.crew.len();
-    let crew_graphic_count = crew_graphics.len();
-    for i in crew_count..crew_graphic_count {
-        let e = crew_graphics.iter().find(|(_, _, x)| x.0 == i).unwrap().0;
-        commands.entity(e).despawn();
-    }
-    for x in crew_graphic_count..crew_count {
-        let new_crew_member = commands
-            .spawn((
-                CrewGraphic(x),
-                Selectable { radius: 10.0 },
-                PickingBehavior {
-                    should_block_lower: false,
-                    is_hoverable: true,
-                },
-                Sprite {
-                    image: assets.load("crew.png"),
-                    ..default()
-                },
-                Transform::from_xyz(0.0, 0.0, Z_CREW),
-            ))
-            .id();
-        commands.entity(self_intel.ship).add_child(new_crew_member);
-    }
-}
-
-pub fn sync_crew_positions(
-    self_intel: Query<&SelfIntel>,
-    ships: Query<&ShipIntel>,
-    mut crew: Query<(&mut Transform, &Parent, &CrewGraphic)>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
-    let ship = &SHIPS[ships.get(self_intel.ship).unwrap().basic.ship_type];
-    let mut crew_graphics = crew
-        .iter_mut()
-        .filter(|&(_, parent, _)| **parent == self_intel.ship)
-        .collect::<Vec<_>>();
-    crew_graphics.sort_unstable_by_key(|(_, _, x)| x.0);
-    let crew = self_intel.crew.iter();
-    let cell_pos = |&Cell(cell)| ship.cell_positions[cell];
-    for (crew, (mut graphic, _, _)) in crew.zip(crew_graphics) {
-        let crew_z = graphic.translation.z;
-        let crew_xy = match &crew.nav_status {
-            CrewNavStatus::At(x) => cell_pos(x),
-            CrewNavStatus::Navigating(x) => match &x.current_location {
-                NavLocation::Line(LineSection([a, b]), x) => cell_pos(a).lerp(cell_pos(b), *x),
-                NavLocation::Square(SquareSection([[a, b], [c, d]]), x) => {
-                    let bottom = cell_pos(a).lerp(cell_pos(b), x.y);
-                    let top = cell_pos(c).lerp(cell_pos(d), x.y);
-                    bottom.lerp(top, x.x)
-                }
-            },
-        };
-        graphic.translation = crew_xy.extend(crew_z);
-    }
-}
-
-fn walls_tex(assets: &AssetServer, x: Walls) -> Handle<Image> {
+fn walls_tex(assets: &AssetServer, x: CompassOctant) -> Handle<Image> {
     assets.load(match x {
-        Walls::TopRight => "walls-corner.png",
-        Walls::TopLeft => "walls-corner.png",
-        Walls::BottomLeft => "walls-corner.png",
-        Walls::BottomRight => "walls-corner.png",
-        Walls::Top => "walls-edge.png",
-        Walls::Left => "walls-edge.png",
-        Walls::Bottom => "walls-edge.png",
-        Walls::Right => "walls-edge.png",
+        CompassOctant::NorthEast => "walls-corner.png",
+        CompassOctant::NorthWest => "walls-corner.png",
+        CompassOctant::SouthWest => "walls-corner.png",
+        CompassOctant::SouthEast => "walls-corner.png",
+        CompassOctant::North => "walls-edge.png",
+        CompassOctant::West => "walls-edge.png",
+        CompassOctant::South => "walls-edge.png",
+        CompassOctant::East => "walls-edge.png",
     })
 }
 
-fn door(ship_type: usize, index: usize) -> Transform {
+fn door_transform(ship_type: usize, index: usize) -> Transform {
     let ship = &SHIPS[ship_type];
     let cells = ship.cell_positions;
     let door_pos = match ship.doors[index] {
         Door::Interior(a, b) => (cells[a.0] + cells[b.0]) / 2.0,
-        Door::Exterior(cell, dir) => cells[cell.0] + dir.offset(),
+        Door::Exterior(cell, dir) => cells[cell.0] + Dir2::from(dir) * 17.5,
     };
     let normal = match ship.doors[index] {
-        Door::Interior(a, b) => cells[b.0] - cells[a.0],
-        Door::Exterior(_, dir) => dir.offset(),
-    }
-    .normalize_or_zero();
+        Door::Interior(a, b) => Dir2::new(cells[b.0] - cells[a.0]).unwrap(),
+        Door::Exterior(_, dir) => Dir2::from(dir),
+    };
     Transform::from_translation(door_pos.extend(Z_CREW)).with_rotation(Quat::from_mat3(&Mat3 {
         x_axis: normal.extend(0.0),
         y_axis: normal.perp().extend(0.0),
@@ -154,20 +84,24 @@ fn door(ship_type: usize, index: usize) -> Transform {
     }))
 }
 
+// This absolute travesty needs to be broken into bits. Also turned into an observer. Or several.
+//
+// It loops through all ships that don't yet have a sprite and:
+// - determines transform based on whether it's the player's ship or not
+// - adds the ship sprite
+// - adds system icons
+// - adds door graphics with observers for toggling doors if it's the player's ship
+// - adds cell graphics, including oxygen, vacuum, walls and no-intel overlays
 pub fn add_ship_graphic(
-    self_intel: Query<&SelfIntel>,
+    self_intel: Single<&SelfIntel>,
     ships: Query<(Entity, &ShipIntel), Without<Sprite>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
     let my_ship = self_intel.ship;
     for (ship, intel) in &ships {
         let is_me = ship == my_ship;
         let transform = if is_me {
-            println!("{ship:?} is me!");
             Transform::from_xyz(-200.0, 0.0, Z_SHIP)
         } else {
             Transform::from_xyz(400.0, 0.0, Z_SHIP).with_rotation(Quat::from_rotation_z(TAU / 4.0))
@@ -194,7 +128,8 @@ pub fn add_ship_graphic(
                 .position(|x| *x == Some(system));
             room.map(|room| {
                 (
-                    PickingBehavior::IGNORE,
+                    Pickable::IGNORE,
+                    Name::new(format!("Icon for {system}")),
                     Sprite {
                         image: assets.load(sprite),
                         ..default()
@@ -217,9 +152,11 @@ pub fn add_ship_graphic(
         commands.entity(ship).with_children(|ship| {
             for i in 0..SHIPS[intel.basic.ship_type].doors.len() {
                 let mut e = ship.spawn((
+                    Name::new(format!("Door {i}")),
                     DoorGraphic(i),
                     Sprite::default(),
-                    door(intel.basic.ship_type, i),
+                    Pickable::default(),
+                    door_transform(intel.basic.ship_type, i),
                 ));
                 if is_me {
                     e.observe(toggle_door);
@@ -230,58 +167,67 @@ pub fn add_ship_graphic(
         for (room_index, room) in SHIPS[intel.basic.ship_type].rooms.iter().enumerate() {
             let room_center = SHIPS[intel.basic.ship_type].room_center(room_index);
             for &Cell(cell) in room.cells {
+                use std::cmp::Ordering::*;
+                use CompassQuadrant::*;
                 let cells = &SHIPS[intel.basic.ship_type].cell_positions;
                 let tex = match (
                     cells[cell].x.total_cmp(&room_center.x),
                     cells[cell].y.total_cmp(&room_center.y),
                 ) {
-                    (std::cmp::Ordering::Less, std::cmp::Ordering::Less) => Walls::BottomLeft,
-                    (std::cmp::Ordering::Less, std::cmp::Ordering::Equal) => Walls::Left,
-                    (std::cmp::Ordering::Less, std::cmp::Ordering::Greater) => Walls::TopLeft,
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Less) => Walls::Bottom,
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Greater) => Walls::Top,
-                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Less) => Walls::BottomRight,
-                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Equal) => Walls::Right,
-                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Greater) => Walls::TopRight,
-                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => {
-                        panic!("No center tiles")
-                    }
+                    (Less, Less) => CompassOctant::SouthWest,
+                    (Less, Equal) => CompassOctant::West,
+                    (Less, Greater) => CompassOctant::NorthWest,
+                    (Equal, Less) => CompassOctant::South,
+                    (Equal, Greater) => CompassOctant::North,
+                    (Greater, Less) => CompassOctant::SouthEast,
+                    (Greater, Equal) => CompassOctant::East,
+                    (Greater, Greater) => CompassOctant::NorthEast,
+                    (Equal, Equal) => panic!("No center tiles"),
                 };
                 let wall_rotation = match tex {
-                    Walls::TopRight => Quat::from_rotation_z(TAU * 0.5),
-                    Walls::Top => Quat::from_rotation_z(TAU * 0.5),
-                    Walls::TopLeft => Quat::from_rotation_z(TAU * 0.75),
-                    Walls::Left => Quat::from_rotation_z(TAU * 0.75),
-                    Walls::BottomLeft => Quat::from_rotation_z(TAU * 0.0),
-                    Walls::Bottom => Quat::from_rotation_z(TAU * 0.0),
-                    Walls::BottomRight => Quat::from_rotation_z(TAU * 0.25),
-                    Walls::Right => Quat::from_rotation_z(TAU * 0.25),
+                    CompassOctant::NorthEast => Quat::from_rotation_z(TAU * 0.5),
+                    CompassOctant::North => Quat::from_rotation_z(TAU * 0.5),
+                    CompassOctant::NorthWest => Quat::from_rotation_z(TAU * 0.75),
+                    CompassOctant::West => Quat::from_rotation_z(TAU * 0.75),
+                    CompassOctant::SouthWest => Quat::from_rotation_z(TAU * 0.0),
+                    CompassOctant::South => Quat::from_rotation_z(TAU * 0.0),
+                    CompassOctant::SouthEast => Quat::from_rotation_z(TAU * 0.25),
+                    CompassOctant::East => Quat::from_rotation_z(TAU * 0.25),
                 };
-                let wall_caps: &[DoorDir] = match tex {
-                    Walls::TopRight => &[DoorDir::Right, DoorDir::Top],
-                    Walls::Top => &[DoorDir::Right, DoorDir::Top, DoorDir::Left],
-                    Walls::TopLeft => &[DoorDir::Top, DoorDir::Left],
-                    Walls::Left => &[DoorDir::Top, DoorDir::Left, DoorDir::Bottom],
-                    Walls::BottomLeft => &[DoorDir::Left, DoorDir::Bottom],
-                    Walls::Bottom => &[DoorDir::Left, DoorDir::Bottom, DoorDir::Right],
-                    Walls::BottomRight => &[DoorDir::Bottom, DoorDir::Right],
-                    Walls::Right => &[DoorDir::Bottom, DoorDir::Right, DoorDir::Top],
+                let wall_caps: &'static [CompassQuadrant] = match tex {
+                    CompassOctant::NorthEast => &[East, North],
+                    CompassOctant::North => &[East, North, West],
+                    CompassOctant::NorthWest => &[North, West],
+                    CompassOctant::West => &[North, West, South],
+                    CompassOctant::SouthWest => &[West, South],
+                    CompassOctant::South => &[West, South, East],
+                    CompassOctant::SouthEast => &[South, East],
+                    CompassOctant::East => &[South, East, North],
                 };
                 let cell_graphic = commands
                     .spawn((
-                        // On::<Pointer<Down>>::run(handle_cell_click),
                         RoomGraphic(room_index),
+                        Name::new(format!("Room {room_index} cell {cell} background")),
                         Sprite {
                             image: assets.load("cell.png"),
                             ..default()
                         },
                         Transform::from_translation(cells[cell].extend(Z_CELL)),
+                        Pickable::default(),
                     ))
-                    .observe(handle_cell_click)
                     .id();
+                commands.spawn((
+                    EnableWhenTargeting,
+                    DisabledObserver(Observer::new(target_weapon).with_entity(cell_graphic)),
+                ));
+                commands.spawn((
+                    DisableWhenTargeting,
+                    Observer::new(set_crew_goal).with_entity(cell_graphic),
+                ));
                 let oxygen = commands
                     .spawn((
-                        PickingBehavior::IGNORE,
+                        Pickable::IGNORE,
+                        Name::new(format!("Room {room_index} cell {cell} O2 overlay")),
                         OxygenGraphic(room_index),
                         Sprite {
                             image: assets.load("low-oxygen.png"),
@@ -292,7 +238,8 @@ pub fn add_ship_graphic(
                     .id();
                 let vacuum = commands
                     .spawn((
-                        PickingBehavior::IGNORE,
+                        Pickable::IGNORE,
+                        Name::new(format!("Room {room_index} cell {cell} vacuum overlay")),
                         VacuumGraphic(room_index),
                         Sprite {
                             image: assets.load("vacuum.png"),
@@ -303,7 +250,8 @@ pub fn add_ship_graphic(
                     .id();
                 let walls = commands
                     .spawn((
-                        PickingBehavior::IGNORE,
+                        Pickable::IGNORE,
+                        Name::new(format!("Room {room_index} cell {cell} walls")),
                         Sprite {
                             image: walls_tex(assets.as_ref(), tex),
                             ..default()
@@ -313,7 +261,8 @@ pub fn add_ship_graphic(
                     .id();
                 let no_intel = commands
                     .spawn((
-                        PickingBehavior::IGNORE,
+                        Pickable::IGNORE,
+                        Name::new(format!("Room {room_index} cell {cell} no intel overlay")),
                         NoIntelGraphic,
                         Sprite {
                             image: assets.load("no-intel.png"),
@@ -328,26 +277,29 @@ pub fn add_ship_graphic(
                     .iter()
                     .map(|x| match x {
                         Door::Interior(a, b) => (cells[a.0] + cells[b.0]) / 2.0,
-                        Door::Exterior(cell, dir) => cells[cell.0] + dir.offset(),
+                        Door::Exterior(cell, dir) => cells[cell.0] + Dir2::from(*dir) * 17.5,
                     })
                     .collect::<Vec<_>>();
                 for &cap in wall_caps {
-                    if !door_positions.contains(&(cells[cell] + cap.offset())) {
+                    if !door_positions.contains(&(cells[cell] + Dir2::from(cap) * 17.5)) {
                         let rotation = match cap {
-                            DoorDir::Right => Quat::from_rotation_z(TAU * 0.0),
-                            DoorDir::Top => Quat::from_rotation_z(TAU * 0.25),
-                            DoorDir::Left => Quat::from_rotation_z(TAU * 0.5),
-                            DoorDir::Bottom => Quat::from_rotation_z(TAU * 0.75),
+                            CompassQuadrant::East => Quat::from_rotation_z(TAU * 0.0),
+                            CompassQuadrant::North => Quat::from_rotation_z(TAU * 0.25),
+                            CompassQuadrant::West => Quat::from_rotation_z(TAU * 0.5),
+                            CompassQuadrant::South => Quat::from_rotation_z(TAU * 0.75),
                         };
                         let cap = commands
                             .spawn((
-                                PickingBehavior::IGNORE,
+                                Pickable::IGNORE,
+                                Name::new(format!("Room {room_index} cell {cell} wall cap")),
                                 Sprite {
                                     image: assets.load("wall-cap.png"),
                                     ..default()
                                 },
-                                Transform::from_translation(cap.offset().extend(Z_WALLS))
-                                    .with_rotation(rotation),
+                                Transform::from_translation(
+                                    (Dir2::from(cap) * 17.5).extend(Z_WALLS),
+                                )
+                                .with_rotation(rotation),
                             ))
                             .id();
                         commands.entity(cell_graphic).add_child(cap);
@@ -363,15 +315,13 @@ pub fn add_ship_graphic(
     }
 }
 
-pub fn update_doors(
+pub fn sync_door_sprites(
     ships: Query<&ShipIntel>,
-    mut doors: Query<(&DoorGraphic, &Parent, &mut Sprite)>,
+    mut doors: Query<(&DoorGraphic, &ChildOf, &mut Sprite)>,
     assets: Res<AssetServer>,
-) {
-    for (&DoorGraphic(door), parent, mut sprite) in &mut doors {
-        let Ok(ship) = ships.get(parent.get()) else {
-            return;
-        };
+) -> Result {
+    for (&DoorGraphic(door), &ChildOf(parent), mut sprite) in &mut doors {
+        let ship = ships.get(parent)?;
         let door = ship.basic.doors[door];
         sprite.image = match door.open {
             _ if door.broken() => assets.load("door-broken.png"),
@@ -379,16 +329,17 @@ pub fn update_doors(
             true => assets.load("door-open.png"),
         };
     }
+    Ok(())
 }
 
-pub fn update_oxygen(
+pub fn sync_oxygen_overlays(
     ships: Query<&ShipIntel, Without<Dead>>,
     interiors: Query<&InteriorIntel>,
-    cells: Query<&Parent>,
-    mut oxygen: Query<(&OxygenGraphic, &Parent, &mut Sprite)>,
-) {
-    for (&OxygenGraphic(room), parent, mut sprite) in &mut oxygen {
-        let ship = **cells.get(**parent).unwrap();
+    cells: Query<&ChildOf>,
+    mut oxygen: Query<(&OxygenGraphic, &ChildOf, &mut Sprite)>,
+) -> Result {
+    for (&OxygenGraphic(room), &ChildOf(cell), mut sprite) in &mut oxygen {
+        let &ChildOf(ship) = cells.get(cell)?;
         let Ok(ship) = ships.get(ship) else {
             continue;
         };
@@ -397,16 +348,17 @@ pub fn update_oxygen(
         };
         sprite.color.set_alpha(1.0 - interior.rooms[room].oxygen);
     }
+    Ok(())
 }
 
-pub fn update_vacuum(
+pub fn sync_vacuum_overlays(
     ships: Query<&ShipIntel, Without<Dead>>,
     interiors: Query<&InteriorIntel>,
-    cells: Query<&Parent>,
-    mut oxygen: Query<(&VacuumGraphic, &Parent, &mut Visibility)>,
-) {
-    for (&VacuumGraphic(room), parent, mut visibility) in &mut oxygen {
-        let ship = **cells.get(**parent).unwrap();
+    cells: Query<&ChildOf>,
+    mut oxygen: Query<(&VacuumGraphic, &ChildOf, &mut Visibility)>,
+) -> Result {
+    for (&VacuumGraphic(room), &ChildOf(cell), mut visibility) in &mut oxygen {
+        let &ChildOf(ship) = cells.get(cell)?;
         let Ok(ship) = ships.get(ship) else {
             continue;
         };
@@ -419,24 +371,23 @@ pub fn update_vacuum(
             Visibility::Hidden
         };
     }
+    Ok(())
 }
 
-pub fn update_no_intel(
-    self_intel: Query<&SelfIntel>,
-    cells: Query<&Parent>,
-    mut no_intel: Query<(&Parent, &mut Visibility), With<NoIntelGraphic>>,
-) {
-    let Ok(self_intel) = self_intel.get_single() else {
-        return;
-    };
-    for (parent, mut visibility) in &mut no_intel {
-        let ship = **cells.get(**parent).unwrap();
-        *visibility = if ship == self_intel.ship {
+pub fn sync_no_intel_overlays(
+    cells: Query<&ChildOf>,
+    has_interior_intel: Query<Has<InteriorIntel>>,
+    mut no_intel: Query<(&ChildOf, &mut Visibility), With<NoIntelGraphic>>,
+) -> Result {
+    for (&ChildOf(cell), mut visibility) in &mut no_intel {
+        let &ChildOf(ship) = cells.get(cell)?;
+        *visibility = if has_interior_intel.get(ship)? {
             Visibility::Hidden
         } else {
             Visibility::Inherited
         };
     }
+    Ok(())
 }
 
 #[derive(Component, Clone, Copy)]
@@ -461,7 +412,7 @@ pub fn spawn_projectile_graphics(
 ) {
     for bullet in &bullets {
         commands.entity(bullet).insert((
-            PickingBehavior::IGNORE,
+            Pickable::IGNORE,
             Sprite {
                 image: assets.load("missile-1.png"),
                 ..default()
@@ -573,12 +524,10 @@ pub fn draw_targets(
     targets: Query<(&ShipIntel, &Transform)>,
     targeting_weapon: Option<Res<TargetingWeapon>>,
     mut gizmos: Gizmos,
-) {
-    let Ok(ship) = ships.get(self_intel.ship) else {
-        return;
-    };
+) -> Result {
+    let ship = ships.get(self_intel.ship)?;
     let Some(weapons) = &ship.basic.weapons else {
-        return;
+        return Ok(());
     };
 
     if let Some(cursor) = window.cursor_position() {
@@ -594,7 +543,7 @@ pub fn draw_targets(
                 ..
             }) => {
                 let WeaponId::Beam(weapon) = weapons.weapons[weapon_index].weapon else {
-                    return;
+                    return Ok(());
                 };
                 let beam_length = weapon.length;
                 let (_, color) = size_color(weapon_index);
@@ -623,7 +572,7 @@ pub fn draw_targets(
                 }
                 WeaponTarget::Beam(target) => {
                     let WeaponId::Beam(weapon) = weapons.weapons[i].weapon else {
-                        return;
+                        return Ok(());
                     };
                     let beam_length = weapon.length;
                     let (_, target_transform) = targets.get(target.ship).unwrap();
@@ -637,4 +586,5 @@ pub fn draw_targets(
             }
         }
     }
+    Ok(())
 }

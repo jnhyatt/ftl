@@ -31,40 +31,48 @@ use crate::{
     weapon::{WeaponId, WeaponTarget},
     Crew, DoorState,
 };
-use bevy::{ecs::entity::MapEntities, prelude::*};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Identifies the [`IntelPackage`] for this ship.
+/// Identifies the intel chunks for this ship. The entity this component is attached to is the
+/// canonical ship entity and is always replicated to all clients. [`BasicIntel`] is stuff that you
+/// can see even without functioning sensors, so it's included here. The other intel chunks are
+/// separate entities pointed to by this component. They may or may not be replicated to clients
+/// depending on sensor status.
 #[derive(Component, Serialize, Deserialize)]
 pub struct ShipIntel {
+    /// Since [`ShipIntel`] is replicated to all clients unconditionally, everything in this struct
+    /// is always visible to all clients. Therefore, we put basic intel that everyone sees in here.
+    /// This is typically just stuff like hull integrity, system locations, and basic shield status
+    /// that's visible just by looking at the ship.
     pub basic: BasicIntel,
-    pub crew_vision: Entity,
+    /// Full interior intel for this ship. This is available for a player's own ship with any sensor
+    /// level, and for enemy ships with level 2 sensors or higher.
+    #[entities]
     pub interior: Entity,
+    /// Exact charge levels for all weapons on this ship. This is available for a player's own ship
+    /// even without sensors, and for enemy ships with level 3 sensors or higher.
+    #[entities]
     pub weapon_charge: Entity,
+    /// Power distribution and status for all systems on this ship. This is available for a player's
+    /// own ship even without sensors, and for enemy ships with level 4 sensors (fully upgraded and
+    /// manned).
+    #[entities]
     pub systems: Entity,
 }
 
-impl MapEntities for ShipIntel {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.crew_vision = entity_mapper.map_entity(self.crew_vision);
-        self.interior = entity_mapper.map_entity(self.interior);
-        self.weapon_charge = entity_mapper.map_entity(self.weapon_charge);
-        self.systems = entity_mapper.map_entity(self.systems);
-    }
-}
-
 /// Holds all the information about a ship that's visible even without functioning sensors.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Component, Serialize, Deserialize, Debug, Clone)]
 pub struct BasicIntel {
     pub ship_type: usize,
-    /// The ship's maximum hull integrity. This should probably move to a `ShipType` class similar
-    /// to how weapons are set up. Also crew race.
-    pub max_hull: usize,
     /// Current hull integrity.
     pub hull: usize,
     /// Location of each ship system, if present. If no entry for a given [`SystemId`] exists, it
-    /// means the system is not installed on the ship.
+    /// means the system is not installed on the ship. Could maybe move these to individual structs
+    /// (like [`ShieldIntel`] for example) so we're not duplicate presence information (i.e. whether
+    /// the system is installed affects both the presence in `system_locations` and the presence of
+    /// the corresponding intel struct, and they should be kept in sync).
     pub system_locations: HashMap<SystemId, usize>,
     /// Basic shield status if the system is installed.
     pub shields: Option<ShieldIntel>,
@@ -75,11 +83,6 @@ pub struct BasicIntel {
     pub oxygen: Option<SystemDamageIntel>,
     pub doors: Vec<DoorState>,
 }
-
-/// Includes everything own crew are able to see. Drones (including hacking drones when powered) and
-/// bombs count towards this as well.
-#[derive(Component, Serialize, Deserialize)]
-pub struct CrewVisionIntel;
 
 #[derive(Component, Serialize, Deserialize, Debug)]
 pub struct InteriorIntel {
@@ -103,6 +106,10 @@ pub struct CrewIntel {
     pub health: f32,
 }
 
+/// Navigation status for a crew member, either stationary at a cell or walking on a
+/// [`NavSection`](crate::nav::NavSection). If a crew is navigating, this intel doesn't tell you
+/// their ultimate destination, just the section they're currently traversing (plus their progress
+/// along that section).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CrewNavIntel {
     At(Cell),
@@ -127,26 +134,17 @@ pub struct WeaponChargeIntel {
 /// FTL drive status and inventory.
 #[derive(Component, Serialize, Deserialize)]
 pub struct SelfIntel {
-    /// Points to the entity controlled by the player this component gets replicated to.
+    /// Points to the ship entity controlled by the player this component gets replicated to.
+    #[entities]
     pub ship: Entity,
     pub max_power: usize,
     pub free_power: usize,
     pub missiles: usize,
+    #[entities]
     pub weapon_targets: Vec<Option<WeaponTarget>>,
     pub crew: Vec<Crew>,
     pub autofire: bool,
     pub oxygen: f32,
-}
-
-impl MapEntities for SelfIntel {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.ship = entity_mapper.map_entity(self.ship);
-        for target in &mut self.weapon_targets {
-            if let Some(target) = target {
-                target.map_entities(entity_mapper);
-            }
-        }
-    }
 }
 
 #[derive(Component, Serialize, Deserialize, Deref)]
@@ -198,4 +196,71 @@ pub struct WeaponsIntel {
 pub struct WeaponIntel {
     pub weapon: WeaponId,
     pub powered: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::{
+        ecs::entity::{EntityGeneration, EntityHashMap, EntityRow},
+        prelude::*,
+    };
+
+    use crate::bullets::RoomTarget;
+
+    use super::*;
+
+    fn new_entity(x: u32) -> Entity {
+        Entity::from_row_and_generation(
+            EntityRow::new(TryFrom::<u32>::try_from(x).unwrap()),
+            EntityGeneration::FIRST,
+        )
+    }
+
+    #[test]
+    fn test_map_room_target() {
+        let [a, b] = [0, 1].map(new_entity);
+        let mut target = RoomTarget { ship: a, room: 0 };
+        let mut mapper = EntityHashMap::from([(a, b)]);
+        <RoomTarget as bevy::ecs::entity::MapEntities>::map_entities(&mut target, &mut mapper);
+        // target.map_entities(&mut mapper);
+        assert_eq!(target.ship, b);
+    }
+
+    #[test]
+    fn test_map_weapon_target() {
+        let [a, b] = [0, 1].map(new_entity);
+        let mut target = WeaponTarget::Projectile(RoomTarget { ship: a, room: 0 });
+        let mut mapper = EntityHashMap::from([(a, b)]);
+        <WeaponTarget as bevy::ecs::entity::MapEntities>::map_entities(&mut target, &mut mapper);
+        let WeaponTarget::Projectile(target) = target else {
+            unreachable!();
+        };
+        assert_eq!(target.ship, b);
+    }
+
+    #[test]
+    fn test_map_self_intel() {
+        let [a, b, c, d] = [0, 1, 2, 3].map(new_entity);
+        let mut intel = SelfIntel {
+            ship: a,
+            max_power: 0,
+            free_power: 0,
+            missiles: 0,
+            weapon_targets: [Some(WeaponTarget::Projectile(RoomTarget {
+                ship: b,
+                room: 0,
+            }))]
+            .into(),
+            crew: [].into(),
+            autofire: false,
+            oxygen: 0.0,
+        };
+        let mut mapper = EntityHashMap::from([(a, c), (b, d)]);
+        SelfIntel::map_entities(&mut intel, &mut mapper);
+        assert_eq!(intel.ship, c);
+        let Some(WeaponTarget::Projectile(target)) = intel.weapon_targets[0] else {
+            unreachable!();
+        };
+        assert_eq!(target.ship, d);
+    }
 }

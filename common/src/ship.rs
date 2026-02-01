@@ -2,7 +2,11 @@ use crate::{
     nav::{Cell, LineSection, PathGraph, SquareSection},
     util::{Aabb, IterAvg},
 };
-use bevy::{math::Vec2, prelude::Component, reflect::Reflect};
+use bevy::{
+    math::{CompassQuadrant, Vec2},
+    prelude::Component,
+    reflect::Reflect,
+};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
@@ -41,11 +45,20 @@ pub struct Dead;
 
 #[derive(Component, Debug)]
 pub struct ShipType {
+    pub max_hull: usize,
+    /// The rooms in the ship.
     pub rooms: &'static [Room],
+    /// The navigation mesh for the ship. This defines the  
     pub nav_mesh: (&'static [LineSection], &'static [SquareSection]),
+    /// The cell adjacency graph for pathfinding. This is used to initialize a map, which can't be
+    /// created at compile time.
     pub path_graph: &'static [(Cell, &'static [Cell])],
+    /// The position of the center of each cell in ship-local coordinates. The number of cells is
+    /// implicitly defined by the length of this array.
     pub cell_positions: &'static [Vec2],
+    /// The system installed in each room, if any.
     pub room_systems: &'static [Option<SystemId>],
+    /// The doors in the ship.
     pub doors: &'static [Door],
 }
 
@@ -98,31 +111,12 @@ pub enum Door {
     Interior(Cell, Cell),
     /// A door to the outside of the ship. Opening this door should result in the attached room
     /// quickly emptying of oxygen. The given direction is the side of the cell it's on, or the
-    /// direction leading to out of the ship.
-    Exterior(Cell, DoorDir),
-}
-
-// TODO replace with Bevy's `CompassQuadrant`
-#[derive(Debug, Clone, Copy)]
-pub enum DoorDir {
-    Right,
-    Top,
-    Left,
-    Bottom,
-}
-
-impl DoorDir {
-    pub fn offset(&self) -> Vec2 {
-        match self {
-            DoorDir::Right => Vec2::new(17.5, 0.0),
-            DoorDir::Top => Vec2::new(0.0, 17.5),
-            DoorDir::Left => Vec2::new(-17.5, 0.0),
-            DoorDir::Bottom => Vec2::new(0.0, -17.5),
-        }
-    }
+    /// direction leading out of the ship.
+    Exterior(Cell, CompassQuadrant),
 }
 
 pub const SHIPS: [ShipType; 1] = [ShipType {
+    max_hull: 30,
     rooms: &[
         Room {
             cells: &[Cell(0), Cell(1)],
@@ -214,7 +208,7 @@ pub const SHIPS: [ShipType; 1] = [ShipType {
         Door::Interior(Cell(8), Cell(17)),
         Door::Interior(Cell(9), Cell(12)),
         Door::Interior(Cell(13), Cell(15)),
-        Door::Exterior(Cell(0), DoorDir::Bottom),
-        Door::Exterior(Cell(16), DoorDir::Top),
+        Door::Exterior(Cell(0), CompassQuadrant::South),
+        Door::Exterior(Cell(16), CompassQuadrant::North),
     ],
 }];

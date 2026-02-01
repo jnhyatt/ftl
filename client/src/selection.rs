@@ -4,24 +4,25 @@ use bevy::{
     math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume},
     prelude::*,
 };
+use common::util::remove_resource;
+
+use crate::pointer::targeting::TargetingWeapon;
 
 pub fn selection_plugin(app: &mut App) {
-    app.add_event::<SelectEvent>();
-    app.add_event::<DeselectAll>();
-    app.init_resource::<SelectionEnabled>();
+    app.add_message::<SelectEvent>();
     app.add_systems(
         Update,
         (
             highlight_selected,
             handle_select_event,
             draw_selection.run_if(resource_exists::<Selection>),
-            deselect_all.run_if(resource_removed::<SelectionEnabled>.or(on_event::<DeselectAll>)),
+            remove_resource::<Selection>.run_if(resource_added::<TargetingWeapon>),
         )
             .chain(),
     );
 }
 
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub enum SelectEvent {
     GrowTo(Vec2),
     Complete,
@@ -77,32 +78,17 @@ pub fn pick_entities(
         .collect()
 }
 
-#[derive(Event)]
-pub struct DeselectAll;
-
-pub fn deselect_all(world: &mut World) {
-    let to_deselect = world
-        .query_filtered::<Entity, With<Selected>>()
-        .iter(world)
-        .collect::<Vec<_>>();
-    for e in to_deselect {
-        world.entity_mut(e).remove::<Selected>();
-    }
-}
-
-#[derive(Resource, Default)]
-pub struct SelectionEnabled;
-
 pub fn handle_select_event(
-    mut events: EventReader<SelectEvent>,
+    mut events: MessageReader<SelectEvent>,
     mut selectables: Query<(Entity, &GlobalTransform, &Selectable)>,
     selected: Query<Entity, With<Selected>>,
     mut selection: Option<ResMut<Selection>>,
     mut commands: Commands,
-    selection_enabled: Option<Res<SelectionEnabled>>,
+    // Selection is disabled when targeting weapons
+    targeting_weapon: Option<Res<TargetingWeapon>>,
 ) {
     for ev in events.read() {
-        if selection_enabled.is_none() {
+        if targeting_weapon.is_some() {
             continue;
         }
         match ev {
